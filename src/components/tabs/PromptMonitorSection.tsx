@@ -26,6 +26,55 @@ const DEFAULT_PROMPTS = ["我想找一款兩千元以內、適合混合性肌膚
 
 let nextPromptId = 1;
 
+// Deterministic string hash — same approach used elsewhere on this tab for
+// demo data, so results don't jump around on unrelated re-renders.
+function hashSeed(input: string): number {
+  let h = 0;
+  for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+const SAMPLE_MODEL: Record<ResponsePlatform, string> = {
+  chat_gpt: "gpt-4.1-mini",
+  claude: "claude-haiku-4-5",
+  gemini: "gemini-2.5-flash-lite",
+  perplexity: "sonar",
+};
+
+// Canned, clearly-fictional responses for "Interactive demo" mode (no live
+// API call, no cost) — not a real AI output. Deterministically includes the
+// brand/competitor names so the comparison table has something to show.
+function buildSampleResults(
+  brand: string,
+  competitors: string[],
+  prompts: string[],
+  platforms: ResponsePlatform[],
+): PromptResponseResult[] {
+  const names = [brand, ...competitors].filter(Boolean);
+  const results: PromptResponseResult[] = [];
+  for (const platform of platforms) {
+    prompts.forEach((prompt, i) => {
+      const seed = hashSeed(`${platform}|${prompt}|${i}`);
+      const mentioned = names.filter((_, idx) => (seed >> idx) % 3 !== 0);
+      const text =
+        mentioned.length > 0
+          ? `（示意回覆）根據這類問題，常見會被提到的品牌包括：${mentioned.join("、")}。實際內容會依平台、模型與當下的網路搜尋結果而不同。`
+          : `（示意回覆）這類問題的常見回答通常不會特別點名單一品牌，而是列出幾個選購重點。`;
+      results.push({
+        platform,
+        prompt,
+        status: "ok",
+        modelName: SAMPLE_MODEL[platform],
+        webSearchUsed: true,
+        responseText: text,
+        mentionedBrands: mentioned,
+        citations: [],
+      });
+    });
+  }
+  return results;
+}
+
 export default function PromptMonitorSection({
   brandName,
   competitors,
@@ -77,6 +126,17 @@ export default function PromptMonitorSection({
     setResults(null); // clear stale results from a previous run immediately
     setExpanded(null);
 
+    // Interactive-demo mode: no live call, no cost — a visitor without "Use
+    // live DataForSEO data" enabled only ever sees sample responses. This is
+    // the only thing standing between a public link and an open billing tap.
+    if (!useLiveData) {
+      await new Promise((r) => setTimeout(r, 500)); // small delay so it doesn't feel instantaneous/fake
+      if (myRequestId !== requestIdRef.current) return;
+      setResults(buildSampleResults(brandName, competitors, promptTexts, selectedPlatforms));
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/geo/prompt-monitor", {
         method: "POST",
@@ -113,13 +173,17 @@ export default function PromptMonitorSection({
 
     const platformStats = ALL_PLATFORMS.filter((p) => platforms.has(p)).map((platform) => {
       const all = byPlatform.get(platform) ?? [];
-      const analyzed = all.filter((r) => r.status === "ok" || r.status === "empty");
+      // Only "ok" responses have text to check for a mention — "empty" means the
+      // request succeeded but returned nothing usable, so it's excluded from
+      // the ratio entirely rather than silently counted as a non-mention.
+      const analyzed = all.filter((r) => r.status === "ok");
+      const empty = all.filter((r) => r.status === "empty");
       const errored = all.filter((r) => r.status === "error");
       const rows = names.map((name) => {
         const mentioning = analyzed.filter((r) => r.mentionedBrands.includes(name));
         return { name, count: mentioning.length, total: analyzed.length };
       });
-      return { platform, requested: all.length, analyzed: analyzed.length, errored: errored.length, rows };
+      return { platform, requested: all.length, analyzed: analyzed.length, empty: empty.length, errored: errored.length, rows };
     });
     return platformStats;
   }, [results, names, platforms]);
@@ -217,29 +281,42 @@ export default function PromptMonitorSection({
         disabled={loading || prompts.length === 0 || platforms.size === 0}
         className="text-xs px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition disabled:opacity-50"
       >
-        {loading ? "Running prompts across platforms…" : "Run prompts"}
+        {loading ? "Running…" : useLiveData ? "Run prompts (live)" : "Run prompts (interactive demo)"}
       </button>
       {error && <span className="ml-2 text-xs text-red-500">{error}</span>}
       {!useLiveData && (
-        <p className="text-[11px] text-amber-600">
-          &ldquo;Use live DataForSEO data&rdquo; is off above — this still calls the real API when you click Run; the toggle
-          only affects the other tabs.
+        <p className="text-[11px] text-gray-400">
+          Interactive demo — these are canned sample responses, not real AI output. Turn on &ldquo;Use live DataForSEO
+          data&rdquo; above to send prompts to the real APIs (billed per request).
         </p>
       )}
 
       {comparison && (
         <div className="space-y-5 pt-2">
-          {comparison.map(({ platform, requested, analyzed, errored, rows }) => (
+          {!useLiveData && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-200 text-amber-700 bg-amber-50 font-medium">
+              Interactive demo — sample responses, not real AI output
+            </span>
+          )}
+          {comparison.map(({ platform, requested, analyzed, empty, errored, rows }) => (
             <div key={platform} className="border border-gray-100 rounded-lg p-3">
               <div className="flex items-center justify-between flex-wrap gap-1 mb-2">
                 <span className="text-xs font-semibold text-gray-800">{PLATFORM_LABEL[platform]}</span>
                 <span className="text-[11px] text-gray-400">
-                  {requested} requested · {analyzed} analyzed{errored > 0 ? ` · ${errored} failed` : ""}
+                  {requested} requested · {analyzed} analyzed
+                  {empty > 0 ? ` · ${empty} empty` : ""}
+                  {errored > 0 ? ` · ${errored} failed` : ""}
                 </span>
               </div>
               {analyzed === 0 ? (
                 <p className="text-xs text-gray-400">
-                  {errored > 0 ? "All requests to this platform failed — see details below." : "No prompts were sent to this platform."}
+                  {errored > 0 && empty > 0
+                    ? "Every request either failed or returned no usable text — see details below."
+                    : errored > 0
+                      ? "All requests to this platform failed — see details below."
+                      : empty > 0
+                        ? "Requests succeeded but returned no usable text — see details below."
+                        : "No prompts were sent to this platform."}
                 </p>
               ) : (
                 <table className="w-full text-xs">

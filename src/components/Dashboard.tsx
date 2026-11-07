@@ -19,7 +19,7 @@ export default function Dashboard() {
   const [brandName, setBrandName] = useState("GlowLab Skincare");
   const [domain, setDomain] = useState("glowlabskincare.com");
   const [keywordsInput, setKeywordsInput] = useState("niacinamide serum, hyperpigmentation");
-  const [competitorsInput, setCompetitorsInput] = useState("");
+  const [competitorsInput, setCompetitorsInput] = useState("The Ordinary, CeraVe");
   const [useLiveData, setUseLiveData] = useState(false);
 
   const focusKeywords = useMemo(
