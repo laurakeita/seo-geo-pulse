@@ -1,17 +1,5 @@
 export type DataSource = "live" | "mock";
 
-export type Sentiment = "positive" | "neutral" | "negative";
-
-export interface TrackedQuery {
-  id: string;
-  text: string;
-  topic: string;
-  region: string;
-  platforms: string[];
-  tags: string[];
-  aiSearchVolume?: number | null; // only populated in live (DataForSEO) mode
-}
-
 export interface TrendPoint {
   date: string; // YYYY-MM-DD
   clicks: number;
@@ -53,33 +41,6 @@ export interface OrganicPulseData {
   topPages: PageRow[];
 }
 
-export interface PlatformMention {
-  platform: string;
-  mentionRate: number; // 0-1, share of tracked prompts where brand is mentioned
-  sentiment: Sentiment;
-}
-
-export interface CompetitorMention {
-  brand: string;
-  mentionRate: number; // 0-1
-  isYou: boolean;
-}
-
-export interface CitationSource {
-  url: string;
-  citedByPlatforms: string[];
-  note: string;
-}
-
-export interface AIVisibilityData {
-  brand: string;
-  period: string;
-  source: DataSource;
-  platforms: PlatformMention[];
-  competitors: CompetitorMention[];
-  citations: CitationSource[];
-}
-
 export interface OpportunityItem {
   title: string;
   insight: string;
@@ -93,7 +54,9 @@ export interface OpportunityReportData {
   items: OpportunityItem[];
 }
 
-// Prompt-based competitor monitoring (DataForSEO LLM Responses API).
+// ---------------------------------------------------------------------------
+// Prompt Monitoring (DataForSEO LLM Responses API)
+
 export type ResponsePlatform = "chat_gpt" | "claude" | "gemini" | "perplexity";
 
 export interface Citation {
@@ -111,4 +74,63 @@ export interface PromptResponseResult {
   responseText: string | null;
   mentionedBrands: string[];
   citations: Citation[];
+}
+
+// A saved test: a reusable setup a user can re-select and rerun. Persisted
+// client-side (browser localStorage) — there's no backend database in this
+// project, so this is the most honest "existing persistence" to reuse.
+export interface SavedTest {
+  id: string;
+  name: string;
+  prompts: string[];
+  brand: string;
+  competitors: string[];
+  platforms: ResponsePlatform[];
+  market: string; // free-text label describing the scenario, e.g. "Taiwan"
+  language: string; // free-text label, e.g. "Traditional Chinese"
+  webSearch: boolean;
+  webSearchCountryIsoCode?: string;
+  createdAt: string; // ISO timestamp
+}
+
+export type TestRunSettings = Omit<SavedTest, "id" | "name" | "createdAt">;
+
+// A completed or partial run, stored with everything needed to later compare
+// it against another run: the exact settings used, per-result status, and
+// which platform/prompt pairs actually produced usable text.
+export interface TestRun {
+  id: string;
+  savedTestId: string | null;
+  savedTestName: string | null;
+  timestamp: string; // ISO
+  mode: "live" | "demo"; // kept separate — a demo run is never compared against a live one
+  settings: TestRunSettings;
+  results: PromptResponseResult[];
+}
+
+// ---------------------------------------------------------------------------
+// Brand Visibility Benchmark (DataForSEO LLM Mentions / Multi-Target Metrics
+// + LLM Mentions Historical)
+
+export type MentionsPlatform = "chat_gpt" | "google";
+
+export interface BenchmarkBrandResult {
+  brand: string;
+  isYou: boolean;
+  mentions: number | null; // null = coverage unavailable; 0 = measured zero
+  mentionShare: number | null; // 0-1, share within the selected brand set
+}
+
+export interface BenchmarkResult {
+  platform: MentionsPlatform | "all";
+  market: string;
+  language: string;
+  brands: BenchmarkBrandResult[];
+  citationDomains: Citation[]; // "Common citation domains in the dataset"
+}
+
+export interface BenchmarkMonthPoint {
+  year: number;
+  month: number;
+  brands: { brand: string; mentions: number | null }[];
 }

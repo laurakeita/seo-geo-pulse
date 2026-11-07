@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import OrganicPulseTab from "@/components/tabs/OrganicPulseTab";
 import AITrackingTab from "@/components/tabs/AITrackingTab";
 import AnalysisSettingsBar from "@/components/inputs/AnalysisSettingsBar";
-import { aiVisibilityMock, organicPulseMock } from "@/lib/mock-data";
+import { organicPulseMock } from "@/lib/mock-data";
 
 const TABS = [
   { key: "organic", label: "Organic Pulse" },
@@ -88,7 +88,6 @@ export default function Dashboard() {
         )}
         {active === "ai" && (
           <AITrackingTab
-            data={aiVisibilityMock}
             brandName={brandName}
             useLiveData={useLiveData}
             competitors={competitors}

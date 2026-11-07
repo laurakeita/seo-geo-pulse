@@ -79,6 +79,7 @@ function displayPlatformName(key: string): string {
 
 export interface AiVisibilityPlatformResult {
   platform: string;
+  mentions: number; // raw count, straight from the API
   mentionRate: number; // 0-1, this target's share of mentions among all tracked targets on this platform
 }
 
@@ -130,6 +131,7 @@ export async function fetchAiVisibility(
   for (const item of items) {
     byTarget[item.key] = (item.platform ?? []).map((p) => ({
       platform: displayPlatformName(p.key),
+      mentions: p.mentions,
       mentionRate: totalsByPlatform[p.key] ? p.mentions / totalsByPlatform[p.key] : 0,
     }));
   }
@@ -393,4 +395,74 @@ export async function fetchPromptMonitoring(req: PromptMonitorRequest): Promise<
   }
 
   return Promise.all(calls);
+}
+
+// ---------------------------------------------------------------------------
+// Brand Visibility Benchmark — historical trend
+// (DataForSEO LLM Mentions Historical API)
+//
+// This is a *different* endpoint from multi_target_metrics/live: its `target`
+// array is filter criteria for ONE search (include/exclude rules), not a list
+// of comparable named targets. To compare brands over time, this calls it
+// once per brand name and combines the monthly results client-side — same
+// principle as the live share-of-voice calculation, just repeated per month.
+// Confirmed via docs on 2026-11-08: date_from cannot be earlier than
+// 2025-08-01; platform accepts only "chat_gpt" or "google" (same two-platform
+// limit as the live endpoint); chat_gpt coverage is US/English only.
+
+interface MentionsHistoricalMonthRaw {
+  year: number;
+  month: number;
+  metrics?: { mentions?: number; ai_search_volume?: number };
+}
+
+export interface BrandMonthlyMentions {
+  brand: string;
+  months: { year: number; month: number; mentions: number }[];
+}
+
+export async function fetchMentionsHistoricalForBrand(
+  brand: string,
+  dateFrom: string,
+  dateTo: string,
+  platform?: AiVisibilityPlatformFilter,
+  locationCode = 2840,
+  languageCode = "en",
+): Promise<BrandMonthlyMentions> {
+  const json = await postLive<{
+    tasks?: { result?: { items?: MentionsHistoricalMonthRaw[] | null }[] }[];
+  }>("/v3/ai_optimization/llm_mentions/historical/live", [
+    {
+      target: [{ keyword: brand, search_filter: "include" }],
+      date_from: dateFrom,
+      date_to: dateTo,
+      location_code: locationCode,
+      language_code: languageCode,
+      ...(platform ? { platform } : {}),
+    },
+  ]);
+  const items = json.tasks?.[0]?.result?.[0]?.items ?? [];
+  return {
+    brand,
+    months: items.map((it) => ({
+      year: it.year,
+      month: it.month,
+      mentions: it.metrics?.mentions ?? 0,
+    })),
+  };
+}
+
+export async function fetchMentionsHistorical(
+  brands: string[],
+  dateFrom: string,
+  dateTo: string,
+  platform?: AiVisibilityPlatformFilter,
+  locationCode = 2840,
+  languageCode = "en",
+): Promise<BrandMonthlyMentions[]> {
+  return Promise.all(
+    brands
+      .slice(0, 10)
+      .map((brand) => fetchMentionsHistoricalForBrand(brand, dateFrom, dateTo, platform, locationCode, languageCode)),
+  );
 }

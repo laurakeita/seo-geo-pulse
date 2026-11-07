@@ -22,20 +22,21 @@ const ORGANIC_ROWS: MethodologyRow[] = [
   { metric: "Clicks / Impressions / CTR (per query & per page)", category: "Unavailable", detail: "Requires a connected Google Search Console account — not wired up in this prototype." },
 ];
 
-const AI_ROWS: MethodologyRow[] = [
-  { metric: "Prompt response text (Prompt Monitoring)", category: "API value", detail: "The LLM's verbatim answer, returned as-is by DataForSEO's LLM Responses API for the selected model." },
-  { metric: "Prompt Mention Rate (Prompt Monitoring)", category: "Dashboard calculation", detail: "Per platform: successfully analyzed responses that contain the brand/competitor name (case-insensitive, counted once per response) ÷ all successfully analyzed responses for that platform. A failed request is excluded from both sides, not counted as a non-mention." },
-  { metric: "Model used / web search used (Prompt Monitoring)", category: "API value", detail: "Read back from each response — not assumed from the request." },
-  { metric: "Citations (Prompt Monitoring)", category: "API value", detail: "The response's annotations array (title + URL), when the model's web search returned any." },
-  { metric: "Platform mention rate (Visibility, live)", category: "Dashboard calculation", detail: "This target's mentions on that platform ÷ combined mentions of every brand/competitor name entered, on that platform. From DataForSEO's LLM Mentions API." },
-  { metric: "Platform mention rate (Visibility, demo)", category: "Demo data", detail: "Deterministic simulated jitter around a baseline rate, with a small boost per tracked query." },
-  { metric: "AI search volume (Queries panel)", category: "API value", detail: "DataForSEO AI Keyword Data API, unmodified." },
-  { metric: "Share of voice — single platform (live)", category: "API value", detail: "Same mention-share formula as above, requested pre-filtered to one platform via DataForSEO's platform parameter." },
-  { metric: "Share of voice — combined (live or demo)", category: "Dashboard calculation", detail: "Simple average of the ChatGPT and Google AI Overview shares, weighted equally." },
-  { metric: "Sentiment", category: "Demo data", detail: "Deterministic placeholder, not model-generated — DataForSEO's Mentions API has no sentiment field." },
-  { metric: "Citation sources (live)", category: "API value", detail: "DataForSEO LLM Mentions API's sources_domain, top 8 by mentions." },
-  { metric: "Citation sources (demo)", category: "Demo data", detail: "Static mock list." },
-  { metric: "Opportunity Report / auto-insights", category: "Unavailable", detail: "Not built this round — recommendations weren't traceable to data. Tab hidden, not removed." },
+const PROMPT_ROWS: MethodologyRow[] = [
+  { metric: "Answer text", category: "API value", detail: "The LLM's verbatim answer, returned as-is by DataForSEO's LLM Responses API for the selected model." },
+  { metric: "Model used / web search used", category: "API value", detail: "Read back from each response — not assumed from the request." },
+  { metric: "Citations", category: "API value", detail: "The response's annotations array (title + URL), when the model's web search returned any." },
+  { metric: "Prompt Mention Rate", category: "Dashboard calculation", detail: "Per platform: successfully analyzed responses that contain the brand/competitor name (case-insensitive, counted once per response) ÷ all successfully analyzed responses for that platform. A failed request is excluded from both sides, not counted as a non-mention." },
+  { metric: "Where competitors appeared", category: "Dashboard calculation", detail: "Filters to answers where a competitor name matched and the focal brand did not. Name matching only — not a judgment about whether the answer actually recommends anything." },
+  { metric: "History / trend / Compare with previous run", category: "Dashboard calculation", detail: "Computed from your own saved runs, stored in this browser (localStorage), not a server database." },
+];
+
+const BENCHMARK_ROWS: MethodologyRow[] = [
+  { metric: "Mentions (current snapshot)", category: "API value", detail: "DataForSEO LLM Mentions / Multi-Target Metrics API, unmodified count for the selected platform." },
+  { metric: "Share of voice (current snapshot)", category: "Dashboard calculation", detail: "This brand's mentions ÷ combined mentions of every brand in the selected set, on the selected platform. Relative to the names you typed in, not total category volume." },
+  { metric: "Unavailable vs. zero", category: "Dashboard calculation", detail: "\"Unavailable\" = the provider returned no entry at all for that name (coverage gap). A measured 0 means the name was checked and had no mentions." },
+  { metric: "Common citation domains in the dataset", category: "API value", detail: "DataForSEO LLM Mentions API's sources_domain, top 8 by mentions — aggregated across the whole dataset, not tied to one brand." },
+  { metric: "Historical trend / Compare periods", category: "API value", detail: "DataForSEO LLM Mentions Historical API, monthly aggregates per brand name, starting 2025-08-01. Share of voice per month is still a dashboard calculation from those raw counts." },
 ];
 
 function MethodologyTable({ rows }: { rows: MethodologyRow[] }) {
@@ -65,26 +66,41 @@ function MethodologyTable({ rows }: { rows: MethodologyRow[] }) {
   );
 }
 
-export default function MetricsMethodology({ scope }: { scope: "organic" | "ai" }) {
+type Scope = "organic" | "prompts" | "benchmark";
+
+export default function MetricsMethodology({ scope }: { scope: Scope }) {
+  const rows = scope === "organic" ? ORGANIC_ROWS : scope === "prompts" ? PROMPT_ROWS : BENCHMARK_ROWS;
   return (
     <details className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <summary className="text-sm font-semibold text-gray-900 px-4 py-3 cursor-pointer select-none">
         How these metrics are calculated
       </summary>
       <div className="px-4 pb-4 space-y-3 overflow-x-auto">
-        <MethodologyTable rows={scope === "organic" ? ORGANIC_ROWS : AI_ROWS} />
+        <MethodologyTable rows={rows} />
 
-        {scope === "ai" && (
+        {scope === "prompts" && (
           <>
             <div className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3">
               <p className="font-medium text-gray-800 mb-1">Example — Prompt Mention Rate</p>
               <p>
-                Suppose 5 prompts are sent to ChatGPT and 4 come back with usable text (1 request fails). If the
-                brand name appears in 2 of those 4 responses, the dashboard shows <strong>2/4 responses · 50%</strong> for
+                Suppose 5 questions are sent to ChatGPT and 4 come back with usable text (1 request fails). If the
+                brand name appears in 2 of those 4 answers, the dashboard shows <strong>2/4 responses · 50%</strong> for
                 ChatGPT — not 2/5. The failed request is excluded from the denominator entirely, rather than being
                 treated as a response that didn&apos;t mention the brand. This example illustrates the formula, not a
                 verified live run — live Prompt Monitoring calls require DataForSEO account balance, and this round&apos;s
                 verification was blocked by a negative balance (see the internal handoff note).
+              </p>
+            </div>
+            <div className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3">
+              <p className="font-medium text-gray-800 mb-1">Prompt Mention Rate vs. Share of Voice — not the same metric</p>
+              <p>
+                <strong>Prompt Mention Rate</strong> (here, in Prompt Monitoring) answers &ldquo;when I ask this exact
+                question, how often does the model name this brand?&rdquo; — scoped to the questions and models you
+                chose. <strong>Share of Voice</strong> (in Brand Visibility Benchmark) answers &ldquo;within
+                DataForSEO&apos;s existing collected dataset, how do these names&apos; mention counts compare to each
+                other?&rdquo; — no question is written or sent; it reads what the provider already has. A brand can
+                score differently on each: well-covered in the provider&apos;s dataset but absent from a specific
+                shopping question&apos;s answers, or the reverse.
               </p>
             </div>
             <p className="text-[11px] text-gray-400">
@@ -92,26 +108,31 @@ export default function MetricsMethodology({ scope }: { scope: "organic" | "ai" 
               are genuinely supported by DataForSEO&apos;s LLM Responses API, confirmed against each platform&apos;s{" "}
               <code>/models</code> endpoint (free to query, unlike a live run). Geo-targeting is an API-enforced
               parameter for ChatGPT, Claude and Perplexity only; Gemini&apos;s endpoint has no such parameter, so a
-              Taiwan scenario for Gemini only ever comes from the prompt text itself.
+              market named in the question for Gemini only ever comes from the question text itself.
             </p>
+          </>
+        )}
+
+        {scope === "benchmark" && (
+          <>
             <div className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3">
               <p className="font-medium text-gray-800 mb-1">Worked example — share of voice</p>
               <p>
                 Targets: GlowLab Skincare + The Ordinary. On ChatGPT, DataForSEO reports 440,150 total mentions
                 across both names; GlowLab accounts for 9 of them → 9 ÷ 440,150 ≈ 0%. The Ordinary accounts for
                 440,141 → ≈100%. That&rsquo;s expected: GlowLab is a fictional demo brand with no real mentions, while
-                The Ordinary is a real, heavily-discussed one. Add or remove names in the settings bar above and the
-                denominator changes with them — share of voice is always relative to the names you&rsquo;ve typed in,
-                not total category volume.
+                The Ordinary is a real, heavily-discussed one. Add or remove names above and the denominator changes
+                with them — share of voice is always relative to the names you&rsquo;ve typed in, not total category
+                volume.
               </p>
             </div>
             <p className="text-[11px] text-gray-400">
-              Platform coverage for this Share of Voice formula specifically: ChatGPT and Google AI Overview are the
-              only platforms the Mentions / Multi-Target Metrics endpoint supports — confirmed against DataForSEO&rsquo;s
-              own documentation and live responses. That&rsquo;s a different endpoint from Prompt Monitoring above, which
-              does cover Gemini and Perplexity; see the case study for why both were evaluated and why Prompt
-              Monitoring became the primary live feature. Gemini/Perplexity in the Queries and Visibility sections
-              elsewhere on this tab remain demo-only illustrations, unrelated to either live endpoint.
+              Platform coverage: ChatGPT and Google AI Overview are the only platforms the Mentions / Multi-Target
+              Metrics and Historical endpoints support — confirmed against DataForSEO&rsquo;s own documentation and
+              live responses. ChatGPT&rsquo;s dataset specifically is scoped to the United States and English only.
+              Gemini and Perplexity are not available on this endpoint at all — that gap is exactly why Prompt
+              Monitoring (a different endpoint) is the primary tool for those platforms; see the case study for the
+              full tradeoff.
             </p>
           </>
         )}

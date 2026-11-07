@@ -118,8 +118,8 @@ export default function OrganicPulseTab({
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard label="Impressions" value={data.kpis.impressions.toLocaleString()} delta={data.kpis.impressionsDelta} />
-        <KpiCard label="Clicks" value={data.kpis.clicks.toLocaleString()} delta={data.kpis.clicksDelta} />
+        <KpiCard label="Impressions" value={data.kpis.impressions.toLocaleString("en-US")} delta={data.kpis.impressionsDelta} />
+        <KpiCard label="Clicks" value={data.kpis.clicks.toLocaleString("en-US")} delta={data.kpis.clicksDelta} />
         <KpiCard
           label="Avg. position"
           value={data.kpis.avgPosition.toFixed(1)}
@@ -169,8 +169,8 @@ export default function OrganicPulseTab({
                   className={`border-b border-gray-50 last:border-0 ${isFocused(q.query) ? "bg-indigo-50/60" : ""}`}
                 >
                   <td className="py-2 text-gray-800">{q.query}</td>
-                  <td className="py-2 text-right text-gray-600">{q.clicks.toLocaleString()}</td>
-                  <td className="py-2 text-right text-gray-600">{q.impressions.toLocaleString()}</td>
+                  <td className="py-2 text-right text-gray-600">{q.clicks.toLocaleString("en-US")}</td>
+                  <td className="py-2 text-right text-gray-600">{q.impressions.toLocaleString("en-US")}</td>
                   <td className="py-2 text-right text-gray-600">{pct(q.ctr)}</td>
                   <td className="py-2 text-right text-gray-600">
                     {hasLive ? (
@@ -225,8 +225,8 @@ export default function OrganicPulseTab({
             {data.topPages.map((p) => (
               <tr key={p.url} className="border-b border-gray-50 last:border-0">
                 <td className="py-2 text-gray-800 font-mono">{p.url}</td>
-                <td className="py-2 text-right text-gray-600">{p.clicks.toLocaleString()}</td>
-                <td className="py-2 text-right text-gray-600">{p.impressions.toLocaleString()}</td>
+                <td className="py-2 text-right text-gray-600">{p.clicks.toLocaleString("en-US")}</td>
+                <td className="py-2 text-right text-gray-600">{p.impressions.toLocaleString("en-US")}</td>
                 <td className="py-2 text-right text-gray-600">{pct(p.ctr)}</td>
               </tr>
             ))}

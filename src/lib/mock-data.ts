@@ -1,5 +1,4 @@
 import type {
-  AIVisibilityData,
   KeywordRow,
   OpportunityReportData,
   OrganicPulseData,
@@ -83,29 +82,9 @@ export const organicPulseMock: OrganicPulseData = {
   topPages,
 };
 
-export const aiVisibilityMock: AIVisibilityData = {
-  brand: DEMO_BRAND,
-  period: "Aug–Sep 2026 (demo data)",
-  source: "mock",
-  platforms: [
-    { platform: "ChatGPT", mentionRate: 0.34, sentiment: "positive" },
-    { platform: "Gemini", mentionRate: 0.21, sentiment: "neutral" },
-    { platform: "Perplexity", mentionRate: 0.42, sentiment: "positive" },
-  ],
-  competitors: [
-    { brand: DEMO_BRAND, mentionRate: 0.32, isYou: true },
-    { brand: "The Ordinary", mentionRate: 0.71, isYou: false },
-    { brand: "Paula's Choice", mentionRate: 0.58, isYou: false },
-    { brand: "CeraVe", mentionRate: 0.66, isYou: false },
-    { brand: "Some By Mi", mentionRate: 0.24, isYou: false },
-  ],
-  citations: [
-    { url: "reddit.com/r/SkincareAddiction", citedByPlatforms: ["ChatGPT", "Perplexity"], note: "User discussion threads frequently cited as a basis for ingredient comparisons" },
-    { url: "byrdie.com", citedByPlatforms: ["Gemini", "Perplexity"], note: "Editorial review site, high authority" },
-    { url: "glowlabskincare.com/blog/hyperpigmentation-guide", citedByPlatforms: ["Perplexity"], note: "Brand-owned content, currently cited by only 1 platform" },
-    { url: "youtube.com (ingredient breakdown videos)", citedByPlatforms: ["ChatGPT"], note: "Video transcripts pulled in as answer sources" },
-  ],
-};
+// Demo brand/competitor set reused by Prompt Monitoring and Brand Visibility
+// Benchmark's demo (sample-response) modes.
+export const DEMO_COMPETITOR_SET = ["The Ordinary", "Paula's Choice", "CeraVe", "Some By Mi"];
 
 export const opportunityReportMock: OpportunityReportData = {
   brand: DEMO_BRAND,

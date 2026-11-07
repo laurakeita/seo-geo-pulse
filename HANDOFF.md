@@ -4,7 +4,81 @@ This note exists so the public case study page can stay concise. It covers
 debugging detail, browser test results, and open/confirmed checks that the
 public page deliberately leaves out. Lives in this private repo only.
 
-Last updated: 2026-11-07.
+Last updated: 2026-11-08.
+
+## This round (2026-11-08): navigation rebuild, saved tests, history, historical benchmark
+
+Major restructure per the "two tabs instead of six" request. Summary of what
+changed, for anyone picking this up later — the public case study intentionally
+doesn't carry this level of build detail.
+
+- **AI Tracking went from 6 sub-tabs to 2**: Queries, Visibility, Sentiment and
+  Citations were removed from the navigation entirely (not hidden — the old
+  `AITrackingTab.tsx` sub-tab code, `TrackedQuery`/`PlatformMention`/
+  `CompetitorMention`/`Sentiment` types, and `aiVisibilityMock` were deleted).
+  Share of Voice was renamed and rebuilt as **Brand Visibility Benchmark**
+  (`BrandVisibilityBenchmark.tsx`, new). Prompt Monitoring is now its own full
+  tool (`PromptMonitorSection.tsx`, substantially rewritten) with the question
+  field first, then focal brand/competitors/market/language/platforms, per the
+  requested field order. `AITrackingTab.tsx` is now a thin 2-tab shell.
+- **Saved tests + run history + persistence**: new `src/lib/storage.ts` wraps
+  `window.localStorage` (try/catch guarded). This is a from-scratch addition —
+  there was no backend database or any persistence layer in this project
+  before, so browser localStorage is the "existing persistence" being reused,
+  per the instruction to prefer what's already there. Saved tests and history
+  are per-browser, not synced across devices — stated directly in the UI, not
+  just here. Verified via CDP: created a saved test + a run, read
+  `localStorage` before/after a full page reload, confirmed both survived and
+  the saved-test dropdown repopulated correctly.
+- **Compare with previous run**: matches on exact (platform, prompt-text)
+  pairs that succeeded (`status: "ok"`) in both runs. Verified two real edge
+  cases via CDP: (1) two runs with different question wording → correctly
+  flagged "these runs differ in: question wording" and correctly reported
+  "Comparison unavailable — no prompt/platform pair succeeded in both runs"
+  (zero overlap, since the prompt text differs on every pair); (2) three
+  identical-settings runs → trend chart populated, "Compare latest two" showed
+  a real per-brand table with "Matched sample: 4 prompt/platform pairs" and
+  correct `— 0` deltas (demo data is deterministic, so identical settings
+  produce identical results, which is expected and not a bug).
+- **"Where competitors appeared" filter**: verified live in demo mode —
+  surfaces exactly the answers where a competitor name matched and the focal
+  brand didn't; checkbox only appears when at least one such answer exists.
+- **Brand Visibility Benchmark + LLM Mentions Historical API**: new
+  `fetchMentionsHistorical()` in `dataforseo.ts`, new routes
+  `/api/geo/benchmark` and `/api/geo/benchmark-history`. Important
+  implementation note: the Historical endpoint's `target` array is filter
+  criteria for *one* search (include/exclude rules), not a list of comparable
+  named targets like `multi_target_metrics` — so comparing N brands over time
+  means N separate calls combined client/server-side per month, same principle
+  as the live share-of-voice math. Confirmed via docs only (balance-blocked,
+  see below): `date_from` cannot precede 2025-08-01 (enforced with a 400 in
+  the route, verified by curl), platform is `chat_gpt`/`google` only.
+- **Real mentions count was initially fabricated, caught and fixed**: first
+  draft of `/api/geo/benchmark` synthesized a fake "mentions" number as
+  `rate * 1000` instead of returning the API's real count, because
+  `AiVisibilityPlatformResult` didn't carry raw mentions, only the rate. Fixed
+  by adding `mentions: number` to that interface and threading the real value
+  through — caught during self-review before shipping, not by the user.
+- **Locale bug found and fixed during verification**: `toLocaleString(undefined, ...)`
+  calls in two new components rendered dates/numbers in whatever locale the
+  visitor's browser reports — confirmed via screenshot showing "2026年8月"
+  instead of "Aug 2026" in the headless Chrome instance (which inherited a
+  zh-TW system locale). Every `toLocale*` call in the codebase now explicitly
+  passes `"en-US"` — grepped to confirm none were missed.
+- **`window.prompt()` replaced with an inline input**: the first "save test"
+  implementation used a native `window.prompt()` dialog, which is also what
+  caused a CDP automation script to hang (native dialogs block the JS
+  execution context mid-`Runtime.evaluate`, so an `await`ed click into a
+  prompt() never resolves without separately handling the dialog event).
+  Replaced with an inline text field — better for accessibility/stylability
+  regardless, and what exposed the problem is informative on its own.
+- **English-first UI**: question/demo defaults switched to an English prompt
+  ("Which niacinamide serums under NT$2,000 would you recommend for
+  combination skin in Taiwan?"), with a one-click "Use a Traditional Chinese /
+  Taiwan scenario instead" link that swaps in the original Traditional Chinese
+  prompt and sets market/geo accordingly. All dashboard chrome (labels,
+  buttons, table headers, tooltips) is English; submitted prompts and model
+  answers stay in whatever language they were written/returned in.
 
 ## Account status
 
@@ -132,13 +206,21 @@ end-to-end with real content.
 
 ## Known rough edges not worth blocking on
 
-- The Mentions-API-based Share of Voice feature (built last round) and the
-  new Prompt-Monitoring feature (this round) are two separate, parallel live
-  mechanisms on the AI Tracking tab, intentionally not merged — the case
-  study's "why I chose LLM Responses" narrative explains the tradeoff
-  between them, but both still work independently in the dashboard.
-- Sentiment remains demo/placeholder everywhere (query-level Sentiment
-  section, and Prompt Monitoring's sample-mode responses have no sentiment
-  field at all). No sentiment analysis of any kind — real or AI-derived —
-  exists in this build. If ever added, it must be labeled "AI-derived" only
-  if an actual model classifies response text, per the standing instruction.
+- Sentiment is gone from the navigation entirely this round (not demoted —
+  removed, per the instruction). No sentiment analysis of any kind — real or
+  AI-derived — exists anywhere in this build now. If ever added, it must be
+  labeled "AI-derived" only if an actual model classifies response text.
+- Brand Visibility Benchmark's "Compare periods" always refetches both
+  periods from scratch (two full historical calls) rather than reusing the
+  main trend fetch's data — simplest correct implementation, not optimized;
+  fine at this traffic scale, worth revisiting if this ever gets real usage.
+- The old `/api/geo/ai-visibility` route (superseded by `/api/geo/benchmark`)
+  is still sitting in the repo, unreferenced by any component. Deletion was
+  blocked by this sandbox's destructive-operation guard (`rm -rf`) and wasn't
+  worth fighting — harmless dead code, safe to delete by hand whenever
+  convenient.
+- Demo-mode data throughout (Prompt Monitoring samples, Brand Visibility
+  Benchmark snapshot and historical trend) is deterministic (hash-seeded),
+  not random — intentional, so a visitor's screenshots/behavior are
+  reproducible, but it means e.g. three identical demo runs in a row show
+  identical sample results. That's expected, not a bug.
