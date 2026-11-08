@@ -13,6 +13,8 @@ export async function POST(req: Request) {
   const platform: AiVisibilityPlatformFilter | undefined = VALID_PLATFORMS.includes(body.platform)
     ? body.platform
     : undefined;
+  const locationCode: number | undefined = typeof body.locationCode === "number" ? body.locationCode : undefined;
+  const languageCode: string | undefined = typeof body.languageCode === "string" ? body.languageCode : undefined;
 
   if (!brand) {
     return Response.json({ error: "brand is required" }, { status: 400 });
@@ -23,7 +25,7 @@ export async function POST(req: Request) {
 
   try {
     const names = [brand, ...competitors].filter(Boolean);
-    const perBrand = await fetchMentionsHistorical(names, dateFrom, dateTo, platform);
+    const perBrand = await fetchMentionsHistorical(names, dateFrom, dateTo, platform, locationCode, languageCode);
 
     // Combine the separate per-brand monthly pulls into one timeline: each
     // point is one calendar month with every brand's mention count for it.

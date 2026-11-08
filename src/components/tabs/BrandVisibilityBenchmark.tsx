@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import MetricsMethodology from "@/components/ui/MetricsMethodology";
 import type { BenchmarkMonthPoint, BenchmarkResult } from "@/lib/types";
@@ -13,24 +13,35 @@ const PLATFORM_LABEL: Record<PlatformFilter, string> = {
 };
 const EARLIEST_DATE = "2025-08-01";
 
+interface LocationOption {
+  locationCode: number;
+  locationName: string;
+  languages: { languageCode: string; languageName: string; platforms: ("chat_gpt" | "google")[] }[];
+}
+
+const FALLBACK_LOCATIONS: LocationOption[] = [
+  { locationCode: 2840, locationName: "United States", languages: [{ languageCode: "en", languageName: "English", platforms: ["chat_gpt", "google"] }] },
+  { locationCode: 2158, locationName: "Taiwan", languages: [{ languageCode: "zh-TW", languageName: "Chinese (Traditional)", platforms: ["google"] }] },
+];
+
 function hashSeed(input: string): number {
   let h = 0;
   for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) >>> 0;
   return h;
 }
 
-function demoBenchmark(brand: string, competitors: string[], platform: PlatformFilter): BenchmarkResult {
+function demoBenchmark(brand: string, competitors: string[], platform: PlatformFilter, market: string, language: string): BenchmarkResult {
   const names = [brand, ...competitors].filter(Boolean);
   const base: Record<string, number> = {};
   names.forEach((n, i) => {
-    const seed = hashSeed(n + platform);
+    const seed = hashSeed(n + platform + market);
     base[n] = i === 0 ? 0.15 + (seed % 20) / 100 : 0.3 + (seed % 50) / 100;
   });
   const total = Object.values(base).reduce((s, v) => s + v, 0);
   return {
     platform,
-    market: "United States",
-    language: "English",
+    market,
+    language,
     brands: names.map((n) => ({ brand: n, isYou: n === brand, mentions: Math.round(base[n] * 500), mentionShare: base[n] / total })),
     citationDomains: [
       { title: "reddit.com", url: "https://reddit.com" },
@@ -56,6 +67,66 @@ export default function BrandVisibilityBenchmark({
   const [competitorsInput, setCompetitorsInput] = useState(initialCompetitors.join(", "));
   const competitors = competitorsInput.split(",").map((c) => c.trim()).filter(Boolean);
   const [platform, setPlatform] = useState<PlatformFilter>("all");
+
+  // Market/language — free reference data, so this loads regardless of the
+  // live/demo toggle. Defaults to United States/English, the only pairing
+  // with both platforms; everything else (including real, verified Taiwan /
+  // Traditional Chinese coverage) is Google-only.
+  const [locations, setLocations] = useState<LocationOption[]>(FALLBACK_LOCATIONS);
+  const [locationsError, setLocationsError] = useState<string | null>(null);
+  const [locationCode, setLocationCode] = useState(2840);
+  const [languageCode, setLanguageCode] = useState("en");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/geo/benchmark-locations")
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (json.error) {
+          setLocationsError(json.error);
+          return;
+        }
+        const sorted = [...json.locations].sort((a, b) =>
+          a.locationName === "United States" ? -1 : b.locationName === "United States" ? 1 : a.locationName.localeCompare(b.locationName),
+        );
+        setLocations(sorted);
+      })
+      .catch((err) => {
+        if (!cancelled) setLocationsError(err instanceof Error ? err.message : "Could not load the market/language list");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedLocation = locations.find((l) => l.locationCode === locationCode) ?? locations[0];
+  const selectedLanguage = selectedLocation?.languages.find((l) => l.languageCode === languageCode) ?? selectedLocation?.languages[0];
+  const availablePlatforms = useMemo<PlatformFilter[]>(() => {
+    const base = selectedLanguage?.platforms ?? ["google"];
+    return base.length === 2 ? ["all", "chat_gpt", "google"] : (base as PlatformFilter[]);
+  }, [selectedLanguage]);
+  // Never actually fetch/display a platform the current market/language
+  // doesn't support — clamped at the point of use rather than "corrected" via
+  // an effect, so there's no stale render where `platform` briefly disagrees
+  // with what's selectable.
+  const effectivePlatform: PlatformFilter = availablePlatforms.includes(platform) ? platform : availablePlatforms[0];
+
+  function selectLocation(code: number) {
+    setLocationCode(code);
+    const loc = locations.find((l) => l.locationCode === code);
+    const firstLanguage = loc?.languages[0];
+    setLanguageCode(firstLanguage?.languageCode ?? "en");
+    const platforms = firstLanguage?.platforms ?? ["google"];
+    setPlatform(platforms.length === 2 ? "all" : platforms[0]);
+  }
+
+  function selectLanguage(code: string) {
+    setLanguageCode(code);
+    const lang = selectedLocation?.languages.find((l) => l.languageCode === code);
+    const platforms = lang?.platforms ?? ["google"];
+    setPlatform(platforms.length === 2 ? "all" : platforms[0]);
+  }
 
   const [result, setResult] = useState<BenchmarkResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -90,10 +161,12 @@ export default function BrandVisibilityBenchmark({
     setLoading(true);
     setError(null);
     setResult(null);
+    const marketName = selectedLocation?.locationName ?? "United States";
+    const languageName = selectedLanguage?.languageName ?? "English";
     if (!useLiveData) {
       await new Promise((r) => setTimeout(r, 400));
       if (myId !== requestIdRef.current) return;
-      setResult(demoBenchmark(brand, competitors, platform));
+      setResult(demoBenchmark(brand, competitors, effectivePlatform, marketName, languageName));
       setLoading(false);
       return;
     }
@@ -101,7 +174,15 @@ export default function BrandVisibilityBenchmark({
       const res = await fetch("/api/geo/benchmark", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brand, competitors, platform: platform === "all" ? undefined : platform }),
+        body: JSON.stringify({
+          brand,
+          competitors,
+          platform: effectivePlatform === "all" ? undefined : effectivePlatform,
+          locationCode,
+          languageCode,
+          locationName: marketName,
+          languageName,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "DataForSEO request failed");
@@ -142,7 +223,7 @@ export default function BrandVisibilityBenchmark({
       const res = await fetch("/api/geo/benchmark-history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brand, competitors, dateFrom, dateTo, platform: platform === "all" ? undefined : platform }),
+        body: JSON.stringify({ brand, competitors, dateFrom, dateTo, platform: effectivePlatform === "all" ? undefined : effectivePlatform, locationCode, languageCode }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "DataForSEO request failed");
@@ -175,12 +256,12 @@ export default function BrandVisibilityBenchmark({
         fetch("/api/geo/benchmark-history", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brand, competitors, dateFrom: periodAFrom, dateTo: periodATo, platform: platform === "all" ? undefined : platform }),
+          body: JSON.stringify({ brand, competitors, dateFrom: periodAFrom, dateTo: periodATo, platform: effectivePlatform === "all" ? undefined : effectivePlatform, locationCode, languageCode }),
         }).then((r) => r.json()),
         fetch("/api/geo/benchmark-history", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brand, competitors, dateFrom: periodBFrom, dateTo: periodBTo, platform: platform === "all" ? undefined : platform }),
+          body: JSON.stringify({ brand, competitors, dateFrom: periodBFrom, dateTo: periodBTo, platform: effectivePlatform === "all" ? undefined : effectivePlatform, locationCode, languageCode }),
         }).then((r) => r.json()),
       ]);
       if (resA.error) throw new Error(resA.error);
@@ -238,15 +319,53 @@ export default function BrandVisibilityBenchmark({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-500">Platform</label>
-          <select value={platform} onChange={(e) => setPlatform(e.target.value as PlatformFilter)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400">
-            {(["all", "chat_gpt", "google"] as PlatformFilter[]).map((p) => (
-              <option key={p} value={p}>{PLATFORM_LABEL[p]}</option>
-            ))}
-          </select>
-          <span className="text-[11px] text-gray-400">Market: United States · Language: English (this endpoint&apos;s default)</span>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Market</label>
+            <select
+              value={locationCode}
+              onChange={(e) => selectLocation(Number(e.target.value))}
+              className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 min-w-[140px]"
+            >
+              {locations.map((l) => (
+                <option key={l.locationCode} value={l.locationCode}>{l.locationName}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Language</label>
+            <select
+              value={languageCode}
+              onChange={(e) => selectLanguage(e.target.value)}
+              className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 min-w-[140px]"
+            >
+              {(selectedLocation?.languages ?? []).map((l) => (
+                <option key={l.languageCode} value={l.languageCode}>{l.languageName}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Platform</label>
+            <select value={effectivePlatform} onChange={(e) => setPlatform(e.target.value as PlatformFilter)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400">
+              {availablePlatforms.map((p) => (
+                <option key={p} value={p}>{PLATFORM_LABEL[p]}</option>
+              ))}
+            </select>
+          </div>
         </div>
+        {selectedLanguage && selectedLanguage.platforms.length === 1 && (
+          <p className="text-[11px] text-amber-600">
+            ChatGPT has no coverage for {selectedLocation?.locationName} / {selectedLanguage.languageName} on this
+            endpoint — only Google AI Overview is available here. United States / English is the only pairing with
+            both.
+          </p>
+        )}
+        {locationsError && (
+          <p className="text-[11px] text-red-500">
+            Could not load the live market/language list ({locationsError}) — showing a fallback with only United
+            States and Taiwan.
+          </p>
+        )}
 
         <button onClick={fetchBenchmark} disabled={loading} className="text-xs px-4 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition disabled:opacity-50">
           {loading ? "Fetching…" : useLiveData ? "Fetch benchmark (live)" : "Fetch benchmark (interactive demo)"}

@@ -6,6 +6,49 @@ public page deliberately leaves out. Lives in this private repo only.
 
 Last updated: 2026-11-08.
 
+## Follow-up fix (2026-11-08): Brand Visibility Benchmark market/language was non-functional
+
+User caught this directly: the tab displayed a static "Market: United States ·
+Language: English" label with no way to change it, and neither backend route
+accepted a location/language parameter — despite the brief explicitly asking
+for a market setting. Root cause: `fetchAiVisibility()` /
+`fetchMentionsHistorical()` already accepted `locationCode`/`languageCode`
+params, but nothing in the UI or routes ever passed them through. Fixed:
+
+- Added `fetchMentionsLocationsAndLanguages()` — the DataForSEO reference
+  endpoint `llm_mentions/locations_and_languages`, confirmed **free (cost 0)**
+  and, importantly, **GET not POST** (POST returns task error 40502 "POST
+  Data Is Empty" — caught by testing both before shipping). Added a `getFree()`
+  helper alongside the existing `postLive()` since the codebase had no GET
+  path before.
+- New route `/api/geo/benchmark-locations` exposes this to the client; it's
+  always fetched on mount (not gated by the live/demo toggle, since it's free
+  reference data, same treatment as the LLM Responses `/models` endpoints).
+- Verified via this call: 94 markets are listed. Only **United States +
+  English** has both ChatGPT and Google coverage; every other pairing is
+  Google-only — including **Taiwan + Traditional Chinese**, which is real,
+  substantial data (2.56M responses), not absent, just Google-only.
+- `BrandVisibilityBenchmark.tsx` now has real Market and Language selects.
+  Changing either auto-corrects the Platform selector to only what that
+  market/language pair actually supports (no way to end up with "ChatGPT"
+  selected somewhere it has zero coverage), with an inline note when ChatGPT
+  isn't available. `/api/geo/benchmark` and `/api/geo/benchmark-history` now
+  accept and forward `locationCode`/`languageCode`.
+- First draft used a `useEffect` to "correct" an invalid platform selection
+  after a market change — correct behavior, but flagged by
+  `react-hooks/set-state-in-effect` as the wrong pattern (setState
+  synchronously in an effect body). Fixed by computing an `effectivePlatform`
+  derived value at render time instead of mutating state reactively, and
+  resetting `platform` directly inside the `selectLocation`/`selectLanguage`
+  event handlers (where it's a response to a genuine user action, not a
+  reactive correction).
+- Verified end-to-end via CDP: switching Market to Taiwan auto-selected
+  Chinese (Traditional), collapsed the Platform options to Google AI Overview
+  only, showed the coverage note, and the fetched result header correctly
+  read "Google AI Overview · Taiwan · Chinese (Traditional)". The live route
+  was confirmed to receive and forward the new params (currently still
+  blocked by the same negative account balance as everything else live).
+
 ## This round (2026-11-08): navigation rebuild, saved tests, history, historical benchmark
 
 Major restructure per the "two tabs instead of six" request. Summary of what

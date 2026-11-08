@@ -46,6 +46,24 @@ async function postLive<T>(path: string, body: unknown): Promise<T> {
   return json as T;
 }
 
+// Reference/metadata endpoints (e.g. locations_and_languages) are GET, not
+// POST — confirmed by testing both against this specific endpoint (POST
+// returns task error 40502 "POST Data Is Empty").
+async function getFree<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "GET",
+    headers: { Authorization: authHeader() },
+  });
+  if (!res.ok) {
+    throw new Error(`DataForSEO HTTP ${res.status}`);
+  }
+  const json = await res.json();
+  if (json.status_code && json.status_code !== 20000) {
+    throw new Error(`DataForSEO error ${json.status_code}: ${json.status_message ?? "unknown"}`);
+  }
+  return json as T;
+}
+
 interface AiMetricGroup {
   key: string;
   mentions: number;
@@ -94,6 +112,40 @@ export interface AiVisibilityResult {
 // valid platform names elsewhere in DataForSEO's AI Optimization API). If the
 // `platform` param is omitted, the API returns both combined.
 export type AiVisibilityPlatformFilter = "chat_gpt" | "google";
+
+// Free to query (confirmed cost: 0 live, 2026-11-08) — a reference list, not
+// a billed task. Only the United States + English combination has both
+// chat_gpt and google coverage; every other market/language pair here is
+// google-only, including Taiwan + Traditional Chinese (verified: 2.5M+
+// responses, google only). The UI uses this to keep the platform selector
+// honest about what's actually available for the chosen market.
+export interface MentionsLocation {
+  locationCode: number;
+  locationName: string;
+  languages: { languageCode: string; languageName: string; platforms: AiVisibilityPlatformFilter[] }[];
+}
+
+export async function fetchMentionsLocationsAndLanguages(): Promise<MentionsLocation[]> {
+  const json = await getFree<{
+    tasks?: {
+      result?: {
+        location_code: number;
+        location_name: string;
+        available_languages?: { language_code: string; language_name: string; available_platforms?: string[] }[];
+      }[];
+    }[];
+  }>("/v3/ai_optimization/llm_mentions/locations_and_languages");
+  const result = json.tasks?.[0]?.result ?? [];
+  return result.map((loc) => ({
+    locationCode: loc.location_code,
+    locationName: loc.location_name,
+    languages: (loc.available_languages ?? []).map((l) => ({
+      languageCode: l.language_code,
+      languageName: l.language_name,
+      platforms: (l.available_platforms ?? []).filter((p): p is AiVisibilityPlatformFilter => p === "chat_gpt" || p === "google"),
+    })),
+  }));
+}
 
 export async function fetchAiVisibility(
   brand: string,

@@ -11,13 +11,17 @@ export async function POST(req: Request) {
   const platform: AiVisibilityPlatformFilter | undefined = VALID_PLATFORMS.includes(body.platform)
     ? body.platform
     : undefined;
+  const locationCode: number | undefined = typeof body.locationCode === "number" ? body.locationCode : undefined;
+  const languageCode: string | undefined = typeof body.languageCode === "string" ? body.languageCode : undefined;
+  const locationName: string = typeof body.locationName === "string" ? body.locationName : "United States";
+  const languageName: string = typeof body.languageName === "string" ? body.languageName : "English";
 
   if (!brand) {
     return Response.json({ error: "brand is required" }, { status: 400 });
   }
 
   try {
-    const visibility = await fetchAiVisibility(brand, competitors, platform);
+    const visibility = await fetchAiVisibility(brand, competitors, platform, locationCode, languageCode);
     const names = [brand, ...competitors].filter(Boolean);
 
     // Raw mention count + share of voice within the selected brand set, for
@@ -51,8 +55,8 @@ export async function POST(req: Request) {
 
     const result: BenchmarkResult = {
       platform: platform ?? "all",
-      market: "United States", // DataForSEO's default location (2840) for this endpoint
-      language: "English",
+      market: locationName,
+      language: languageName,
       brands,
       citationDomains: visibility.citations.map((c) => ({ title: c.url, url: `https://${c.url}` })),
     };
