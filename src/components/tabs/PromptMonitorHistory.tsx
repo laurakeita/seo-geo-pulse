@@ -156,10 +156,14 @@ export default function PromptMonitorHistory({
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">History</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            History is saved in this browser — not shared across devices, and not sent to any server (
+            {history.filter((r) => r.mode === "live").length} live, {history.filter((r) => r.mode === "demo").length} demo
+            run{history.filter((r) => r.mode === "demo").length === 1 ? "" : "s"} saved here).
+          </p>
           <p className="text-xs text-gray-400 mt-1">
-            Stored in this browser only ({history.filter((r) => r.mode === "live").length} live,{" "}
-            {history.filter((r) => r.mode === "demo").length} demo run{history.filter((r) => r.mode === "demo").length === 1 ? "" : "s"}).
-            Not shared across devices, and not sent to any server.
+            Comparing two runs matches the same prompt/platform pairs that returned usable answers in both runs, and
+            shows the matched sample size.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -190,7 +194,7 @@ export default function PromptMonitorHistory({
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[480px]">
+            <table className="w-full text-xs min-w-[480px] [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
               <thead>
                 <tr className="text-left text-gray-400 border-b border-gray-100">
                   <th className="py-2 font-medium">Run</th>
@@ -288,7 +292,7 @@ export default function PromptMonitorHistory({
                   </p>
                 ) : (
                   <>
-                    <table className="w-full text-xs">
+                    <table className="w-full text-xs [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
                       <thead>
                         <tr className="text-left text-gray-400 border-b border-gray-100">
                           <th className="py-1.5 font-medium">Brand</th>

@@ -278,7 +278,8 @@ export default function PromptMonitorSection({
         const mentioning = analyzed.filter((r) => r.mentionedBrands.includes(name));
         return { name, count: mentioning.length, total: analyzed.length };
       });
-      return { platform, requested: all.length, analyzed: analyzed.length, empty: empty.length, errored: errored.length, rows };
+      const models = Array.from(new Set(all.map((r) => r.modelName).filter((m): m is string => Boolean(m))));
+      return { platform, requested: all.length, analyzed: analyzed.length, empty: empty.length, errored: errored.length, rows, models };
     });
   }, [results, names, platforms]);
 
@@ -511,10 +512,13 @@ export default function PromptMonitorSection({
             </span>
           )}
 
-          {comparison.map(({ platform, requested, analyzed, empty, errored, rows }) => (
+          {comparison.map(({ platform, requested, analyzed, empty, errored, rows, models }) => (
             <div key={platform} className="border border-gray-100 rounded-lg p-3">
               <div className="flex items-center justify-between flex-wrap gap-1 mb-2">
-                <span className="text-xs font-semibold text-gray-800">{PLATFORM_LABEL[platform]}</span>
+                <span className="text-xs font-semibold text-gray-800">
+                  {PLATFORM_LABEL[platform]}
+                  {models.length > 0 && <span className="ml-1.5 text-[11px] text-gray-400 font-mono font-normal">{models.join(", ")}</span>}
+                </span>
                 <span className="text-[11px] text-gray-400">
                   {requested} requested · {analyzed} analyzed
                   {empty > 0 ? ` · ${empty} empty` : ""}
@@ -522,14 +526,17 @@ export default function PromptMonitorSection({
                 </span>
               </div>
               {analyzed === 0 ? (
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-600">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-200 text-amber-700 bg-amber-50 font-medium mr-1.5">
+                    Unavailable
+                  </span>
                   {errored > 0 && empty > 0
-                    ? "Every request either failed or returned no usable text — see details below."
+                    ? "every request either failed or returned no usable text — see details below."
                     : errored > 0
-                      ? "All requests to this platform failed — see details below."
+                      ? "all requests to this platform failed — see details below."
                       : empty > 0
-                        ? "Requests succeeded but returned no usable text — see details below."
-                        : "No questions were sent to this platform."}
+                        ? "requests succeeded but returned no usable text — see details below."
+                        : "no questions were sent to this platform."}
                 </p>
               ) : analyzed === 1 ? (
                 <p className="text-xs text-gray-700">
@@ -539,13 +546,13 @@ export default function PromptMonitorSection({
                     : "none of the tracked names"}
                 </p>
               ) : (
-                <table className="w-full text-xs">
+                <table className="w-full text-xs [&_td]:px-2 [&_td:first-child]:pl-0 [&_td:last-child]:pr-0">
                   <tbody>
                     {rows.map((r) => (
                       <tr key={r.name} className="border-b border-gray-50 last:border-0">
                         <td className="py-1.5 text-gray-700">{r.name}</td>
                         <td className="py-1.5 text-right text-gray-900 font-medium whitespace-nowrap">
-                          {r.count}/{r.total} · {r.total > 0 ? Math.round((r.count / r.total) * 100) : 0}%
+                          {r.count}/{r.total} responses · {r.total > 0 ? Math.round((r.count / r.total) * 100) : 0}%
                         </td>
                       </tr>
                     ))}
@@ -562,16 +569,19 @@ export default function PromptMonitorSection({
           </p>
 
           {competitorOnlyResults.length > 0 && (
-            <label className="flex items-center gap-2 text-xs text-gray-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-              <input
-                type="checkbox"
-                checked={onlyCompetitorAppearances}
-                onChange={(e) => setOnlyCompetitorAppearances(e.target.checked)}
-                className="h-3.5 w-3.5 accent-indigo-600"
-              />
-              Where competitors appeared — show only the {competitorOnlyResults.length} answer
-              {competitorOnlyResults.length === 1 ? "" : "s"} that mention a competitor but not {brand || "the focal brand"}
-            </label>
+            <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 space-y-1">
+              <label className="flex items-center gap-2 text-xs text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={onlyCompetitorAppearances}
+                  onChange={(e) => setOnlyCompetitorAppearances(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-indigo-600"
+                />
+                Where competitors appeared — show only the {competitorOnlyResults.length} answer
+                {competitorOnlyResults.length === 1 ? "" : "s"} that mention a competitor but not {brand || "the focal brand"}
+              </label>
+              <p className="text-[11px] text-gray-500 pl-6">Shows answers that mention a tracked competitor but omit the focal brand.</p>
+            </div>
           )}
 
           <div>

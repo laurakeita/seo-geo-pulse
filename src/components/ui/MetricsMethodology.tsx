@@ -34,8 +34,8 @@ const PROMPT_ROWS: MethodologyRow[] = [
 const BENCHMARK_ROWS: MethodologyRow[] = [
   { metric: "Mentions (current snapshot)", category: "API value", detail: "DataForSEO LLM Mentions / Multi-Target Metrics API, unmodified count for the selected platform." },
   { metric: "Share of voice (current snapshot)", category: "Dashboard calculation", detail: "This brand's mentions ÷ combined mentions of every brand in the selected set, on the selected platform. Relative to the names you typed in, not total category volume." },
-  { metric: "Unavailable vs. zero", category: "Dashboard calculation", detail: "\"Unavailable\" = the provider returned no entry at all for that name (coverage gap). A measured 0 means the name was checked and had no mentions." },
-  { metric: "Common citation domains in the dataset", category: "API value", detail: "DataForSEO LLM Mentions API's sources_domain, top 8 by mentions — aggregated across the whole dataset, not tied to one brand." },
+  { metric: "Unavailable vs. zero", category: "Dashboard calculation", detail: "\"Unavailable\" = the provider returned no entry at all for that name, or the combined mentions across the whole brand set was zero (no usable denominator). A measured 0 means the name was checked, had a valid denominator, and simply had no mentions." },
+  { metric: "Top citation domains returned for this benchmark", category: "API value", detail: "DataForSEO LLM Mentions API's sources_domain field, top 8 by mentions. Scope: the whole comparison set in one call (every brand and competitor you've entered, combined) — not specific to any single brand." },
   { metric: "Historical trend / Compare periods", category: "API value", detail: "DataForSEO LLM Mentions Historical API, monthly aggregates per brand name, starting 2025-08-01. Share of voice per month is still a dashboard calculation from those raw counts." },
 ];
 
@@ -83,32 +83,23 @@ export default function MetricsMethodology({ scope }: { scope: Scope }) {
             <div className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3">
               <p className="font-medium text-gray-800 mb-1">Example — Prompt Mention Rate</p>
               <p>
-                Suppose 5 questions are sent to ChatGPT and 4 come back with usable text (1 request fails). If the
-                brand name appears in 2 of those 4 answers, the dashboard shows <strong>2/4 responses · 50%</strong> for
-                ChatGPT — not 2/5. The failed request is excluded from the denominator entirely, rather than being
-                treated as a response that didn&apos;t mention the brand. This example illustrates the formula, not a
-                verified live run — live Prompt Monitoring calls require DataForSEO account balance, and this round&apos;s
-                verification was blocked by a negative balance (see the internal handoff note).
+                Five requests were sent. Four returned usable answers, and two mentioned the brand, so the mention
+                rate is <strong>2/4 (50%)</strong>. The one request that failed is excluded from the denominator
+                entirely, rather than being treated as a response that didn&apos;t mention the brand.
               </p>
             </div>
             <div className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3">
-              <p className="font-medium text-gray-800 mb-1">Prompt Mention Rate vs. Share of Voice — not the same metric</p>
+              <p className="font-medium text-gray-800 mb-1">Prompt Mention Rate vs. Share of Voice</p>
               <p>
-                <strong>Prompt Mention Rate</strong> (here, in Prompt Monitoring) answers &ldquo;when I ask this exact
-                question, how often does the model name this brand?&rdquo; — scoped to the questions and models you
-                chose. <strong>Share of Voice</strong> (in Brand Visibility Benchmark) answers &ldquo;within
-                DataForSEO&apos;s existing collected dataset, how do these names&apos; mention counts compare to each
-                other?&rdquo; — no question is written or sent; it reads what the provider already has. A brand can
-                score differently on each: well-covered in the provider&apos;s dataset but absent from a specific
-                shopping question&apos;s answers, or the reverse.
+                Prompt Mention Rate measures how often a brand appeared in your test responses. Share of Voice
+                measures its share of mentions in the selected benchmark dataset and brand set.
               </p>
             </div>
             <p className="text-[11px] text-gray-400">
               Platform coverage for Prompt Monitoring: all four platforms — ChatGPT, Claude, Gemini and Perplexity —
-              are genuinely supported by DataForSEO&apos;s LLM Responses API, confirmed against each platform&apos;s{" "}
-              <code>/models</code> endpoint (free to query, unlike a live run). Geo-targeting is an API-enforced
-              parameter for ChatGPT, Claude and Perplexity only; Gemini&apos;s endpoint has no such parameter, so a
-              market named in the question for Gemini only ever comes from the question text itself.
+              are supported by DataForSEO&apos;s LLM Responses API. Geo-targeting is an API-enforced parameter for
+              ChatGPT, Claude and Perplexity only; Gemini&apos;s endpoint has no such parameter, so a market named in
+              the question for Gemini only ever comes from the question text itself.
             </p>
           </>
         )}
@@ -118,12 +109,10 @@ export default function MetricsMethodology({ scope }: { scope: Scope }) {
             <div className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3">
               <p className="font-medium text-gray-800 mb-1">Worked example — share of voice</p>
               <p>
-                Targets: GlowLab Skincare + The Ordinary. On ChatGPT, DataForSEO reports 440,150 total mentions
-                across both names; GlowLab accounts for 9 of them → 9 ÷ 440,150 ≈ 0%. The Ordinary accounts for
-                440,141 → ≈100%. That&rsquo;s expected: GlowLab is a fictional demo brand with no real mentions, while
-                The Ordinary is a real, heavily-discussed one. Add or remove names above and the denominator changes
-                with them — share of voice is always relative to the names you&rsquo;ve typed in, not total category
-                volume.
+                Brand A has 30 mentions and Brand B has 70. Brand A&rsquo;s share of voice is 30% within this
+                comparison set (30 ÷ (30 + 70) = 30%; Brand B is 70%). Add or remove names above and the denominator
+                changes with them — share of voice is always relative to the names you&rsquo;ve typed in, not total
+                category volume.
               </p>
             </div>
             <p className="text-[11px] text-gray-400">

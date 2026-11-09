@@ -253,10 +253,6 @@ end-to-end with real content.
   removed, per the instruction). No sentiment analysis of any kind — real or
   AI-derived — exists anywhere in this build now. If ever added, it must be
   labeled "AI-derived" only if an actual model classifies response text.
-- Brand Visibility Benchmark's "Compare periods" always refetches both
-  periods from scratch (two full historical calls) rather than reusing the
-  main trend fetch's data — simplest correct implementation, not optimized;
-  fine at this traffic scale, worth revisiting if this ever gets real usage.
 - The old `/api/geo/ai-visibility` route (superseded by `/api/geo/benchmark`)
   is still sitting in the repo, unreferenced by any component. Deletion was
   blocked by this sandbox's destructive-operation guard (`rm -rf`) and wasn't
@@ -267,3 +263,125 @@ end-to-end with real content.
   not random — intentional, so a visitor's screenshots/behavior are
   reproducible, but it means e.g. three identical demo runs in a row show
   identical sample results. That's expected, not a bug.
+
+## Follow-up round (2026-11-09): date-controls unification + methodology copy cleanup
+
+Scope: a 4-part brief based on screenshots of the live dashboard, covering
+Brand Visibility Benchmark's date controls, both tabs' "How these metrics are
+calculated" copy, Prompt Monitoring's result/history copy, and Organic
+Search's public-demo labeling. Dashboard-only — no case study changes this
+round.
+
+**1. Brand Visibility Benchmark date controls** (`BrandVisibilityBenchmark.tsx`)
+- Replaced the separate "Historical trend" (From/To date inputs) and "Compare
+  periods" (Period A/Period B date inputs) sections with one row: **Date
+  range · Compare with · Apply**.
+- Switched from `<input type="date">` to month selects (`MonthSelect`, a
+  small internal component backed by plain `<select>`s, not
+  `<input type="month">` — Safari doesn't support the native month picker, so
+  a dual-select is the cross-browser-safe choice given this project's
+  existing Safari-compatibility concerns).
+- Default range: latest 3 complete calendar months available
+  (`lastCompleteMonth()` = the month before the current one, since the
+  current month is never "complete"), clamped to not precede 2025-08 (the
+  API's documented earliest month).
+- **Compare with**: Off / Previous period / Custom range. "Previous period"
+  is *derived at render time* from the Date range (`previousPeriod()`), never
+  stored as separate state, so it can't drift out of sync — verified live:
+  Aug–Oct 2026 (3 months) → compare range computed as May–Jul 2026 (3
+  months, immediately preceding, non-overlapping). "Custom range" reveals two
+  more month selects.
+- One **Apply** button (`applyDateControls`) fetches the Date range timeline
+  (used for both the trend chart and, as "Period A", the comparison table)
+  and, if Compare with isn't Off, a second timeline for Period B — replacing
+  the old two-separate-fetches design. This also means Period A's comparison
+  totals now come from the same fetch as the trend chart, not a separate
+  Historical API call (a minor efficiency win, not just a UX one).
+- When Compare with = Custom range and the two ranges have different lengths,
+  an amber note states both lengths and says to compare shares, not totals.
+- Fixed a real bug while here: **Share of Voice wasn't distinguishing "no
+  data" from "zero denominator."** `periodTotals()` (client, for the
+  trend/compare tables) and `/api/geo/benchmark`'s `targetStats()` (server,
+  for the snapshot table) both now return `null` (rendered as "Unavailable")
+  when either a brand has no API entry at all *or* the combined mentions
+  across the whole brand set is zero — previously a zero denominator silently
+  produced a `0%` share, indistinguishable from a brand genuinely measured at
+  0%.
+- Added a persistent "Viewing: {platform} · {market} · {language}" line next
+  to the filters (not just after fetching), and renamed "Common citation
+  domains in the dataset" → "Top citation domains returned for this
+  benchmark," with a note on its actual scope: confirmed by reading
+  `fetchAiVisibility()` in `dataforseo.ts` — `citations` comes from the one
+  `multi_target_metrics` call's `aggregated_metrics.sources_domain`, which is
+  aggregated across the *whole comparison set in that call* (every brand and
+  competitor combined), not scoped to any single brand. The UI copy now says
+  this explicitly instead of implying otherwise.
+- Table cell spacing improved everywhere in this file via Tailwind arbitrary
+  selectors (`[&_th]:px-2 [&_td]:px-2`, trimmed at the first/last column) —
+  applied to every table across `BrandVisibilityBenchmark.tsx`,
+  `PromptMonitorSection.tsx`, `PromptMonitorHistory.tsx`, and
+  `OrganicPulseTab.tsx`.
+
+**2/3. Methodology copy** (`MetricsMethodology.tsx`)
+- Benchmark worked example replaced with the requested Brand A/Brand B
+  illustration (30 vs. 70 mentions → 30%/70% share).
+- Prompt Monitoring example replaced with the requested five-requests/
+  four-usable/two-mentioned (2/4, 50%) illustration.
+- The old "Prompt Mention Rate vs. Share of Voice" explainer (a full
+  paragraph) was cut to the exact one-sentence pairing requested.
+- Removed all account-balance notes, `/models`-endpoint verification
+  mentions, and internal-handoff references from both tabs' public
+  methodology copy — that detail now lives only here in HANDOFF.md, never in
+  the public UI.
+
+**3. Prompt Monitoring results/history** (`PromptMonitorSection.tsx`,
+`PromptMonitorHistory.tsx`)
+- Per-platform comparison rows now show `count/total responses · pct%`
+  (added the word "responses," previously just `2/4 · 50%`).
+- Zero-usable-answers platforms now show an explicit **Unavailable** badge
+  (amber pill) ahead of the reason, instead of only prose.
+- Model name now shown directly in the platform result row header (next to
+  the platform name), not only inside the expanded per-answer detail.
+- "Where competitors appeared" now has the requested explanatory sentence
+  directly under the filter checkbox.
+- The History header now states the comparison method (matches the same
+  prompt/platform pairs with usable answers in both runs, shows matched
+  sample size) and the literal sentence "History is saved in this browser" —
+  both up front, not only after a comparison is run.
+
+**4. Organic Search public demo** (`OrganicPulseTab.tsx`, `KpiCard.tsx`)
+- Added an optional `badge` prop to `KpiCard`; all four organic KPI cards
+  (Impressions, Clicks, Avg. position, Avg. CTR) now carry a "Demo data"
+  pill, plus the sentence "Traffic metrics use sample data to protect client
+  confidentiality." above the KPI grid.
+- The live per-keyword SERP badge (shown after "Fetch live rankings")
+  relabeled from "live" to **"SERP position for this check,"** with the
+  footnote updated to name both labels explicitly and state that this is the
+  only real field in that table — everything else stays demo data.
+- **Not implemented**: "for per-query or per-page fields that have no
+  sample values, display 'Not included in the public demo.'" Checked both
+  `KeywordRow` and `PageRow` (`types.ts`) against what's actually rendered in
+  the Top queries / Top pages tables — every field shown is backed by a
+  non-optional mock value; there is currently no per-query or per-page field
+  without sample data. Implementing a null-check for values that can't
+  structurally be null would be dead code, so this was skipped rather than
+  faked. If a future field (e.g. a per-page position or device breakdown) is
+  added without sample data behind it, this is where that fallback text
+  should go.
+
+**Verification**: `npx tsc --noEmit`, `npx eslint src --max-warnings=9999`,
+and `npm run build` all clean. Verified via CDP (headless Chrome) at 1280px
+and 390px widths: the unified date-controls row renders and wraps correctly
+on both; Compare with = Custom range with deliberately different-length
+periods shows the length-mismatch warning; Compare with = Previous period
+computes the correct non-overlapping prior range; the benchmark snapshot
+table, citation-domains section, and "How these metrics are calculated"
+content all read correctly (full text extracted and checked, not just
+screenshotted); Prompt Monitoring's model-name-in-row-header, Unavailable
+badge path (not triggered in demo mode since all demo responses are "ok" —
+reasoning verified by code read, not by a live triggered empty/error case),
+and "Where competitors appeared" copy all render as specified; Organic
+Search's Demo data badges and confidentiality sentence render on both
+desktop and mobile. Not re-tested in Safari this round (the earlier
+screen-recording-permission blocker for Safari automation was never
+resolved) — only headless Chrome was used.

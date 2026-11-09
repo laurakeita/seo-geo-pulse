@@ -49,8 +49,10 @@ export async function POST(req: Request) {
       mentions: r.mentions,
       // mentionRate is already "share of combined mentions" from the API;
       // this re-normalizes it against the targets that have coverage here so
-      // the displayed percentages sum to ~100% within the selected set.
-      mentionShare: r.rate === null ? null : totalRate > 0 ? r.rate / totalRate : 0,
+      // the displayed percentages sum to ~100% within the selected set. A
+      // zero denominator (no coverage for any target) is "unavailable", not
+      // a measured 0 for everyone.
+      mentionShare: r.rate === null || totalRate === 0 ? null : r.rate / totalRate,
     }));
 
     const result: BenchmarkResult = {

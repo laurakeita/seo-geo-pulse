@@ -117,17 +117,19 @@ export default function OrganicPulseTab({
         </div>
       )}
 
+      <p className="text-[11px] text-gray-500">Traffic metrics use sample data to protect client confidentiality.</p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard label="Impressions" value={data.kpis.impressions.toLocaleString("en-US")} delta={data.kpis.impressionsDelta} />
-        <KpiCard label="Clicks" value={data.kpis.clicks.toLocaleString("en-US")} delta={data.kpis.clicksDelta} />
+        <KpiCard label="Impressions" value={data.kpis.impressions.toLocaleString("en-US")} delta={data.kpis.impressionsDelta} badge="Demo data" />
+        <KpiCard label="Clicks" value={data.kpis.clicks.toLocaleString("en-US")} delta={data.kpis.clicksDelta} badge="Demo data" />
         <KpiCard
           label="Avg. position"
           value={data.kpis.avgPosition.toFixed(1)}
           delta={data.kpis.avgPositionDelta}
           invertGood
           deltaFormat="absolute"
+          badge="Demo data"
         />
-        <KpiCard label="Avg. CTR" value={pct(data.kpis.avgCtr)} delta={data.kpis.avgCtrDelta} />
+        <KpiCard label="Avg. CTR" value={pct(data.kpis.avgCtr)} delta={data.kpis.avgCtrDelta} badge="Demo data" />
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
@@ -148,7 +150,7 @@ export default function OrganicPulseTab({
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 overflow-x-auto">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">Top queries</h3>
-        <table className="w-full text-xs min-w-[520px]">
+        <table className="w-full text-xs min-w-[520px] [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
           <thead>
             <tr className="text-left text-gray-400 border-b border-gray-100">
               <th className="py-2 font-medium">Query</th>
@@ -185,8 +187,8 @@ export default function OrganicPulseTab({
                       q.position.toFixed(1)
                     )}
                     {hasLive && live.status !== "error" && (
-                      <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded-full border border-emerald-200 text-emerald-600 bg-emerald-50">
-                        live
+                      <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded-full border border-emerald-200 text-emerald-600 bg-emerald-50 whitespace-nowrap">
+                        SERP position for this check
                       </span>
                     )}
                     {hasLive && live.status === "error" && (
@@ -205,14 +207,14 @@ export default function OrganicPulseTab({
         </table>
         <p className="text-[11px] text-gray-400 mt-2">
           {hasLivePositions
-            ? "Position marked “live” is real. Clicks/impressions/CTR are still demo data — see “How these metrics are calculated” below."
+            ? "The “SERP position for this check” badge is a real, live DataForSEO rank for this exact query — distinct from the demo “Avg. position” KPI card above. Clicks/impressions/CTR in this table are still demo data — see “How these metrics are calculated” below."
             : "All fields below are demo data until you fetch live rankings above — see “How these metrics are calculated” below."}
         </p>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 overflow-x-auto">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">Top pages</h3>
-        <table className="w-full text-xs min-w-[420px]">
+        <table className="w-full text-xs min-w-[420px] [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
           <thead>
             <tr className="text-left text-gray-400 border-b border-gray-100">
               <th className="py-2 font-medium">Page</th>

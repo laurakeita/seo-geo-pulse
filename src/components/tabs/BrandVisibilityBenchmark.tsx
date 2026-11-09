@@ -11,8 +11,6 @@ const PLATFORM_LABEL: Record<PlatformFilter, string> = {
   google: "Google AI Overview",
   all: "All supported platforms",
 };
-const EARLIEST_DATE = "2025-08-01";
-
 interface LocationOption {
   locationCode: number;
   locationName: string;
@@ -52,6 +50,90 @@ function demoBenchmark(brand: string, competitors: string[], platform: PlatformF
 
 function monthLabel(y: number, m: number) {
   return new Date(y, m - 1, 1).toLocaleString("en-US", { year: "numeric", month: "short" });
+}
+
+// Month-range math for the Historical trend / Compare controls. The
+// Historical API only returns monthly aggregates, so every date control here
+// picks whole months rather than arbitrary days.
+interface MonthVal {
+  year: number;
+  month: number; // 1-12
+}
+const EARLIEST_MONTH: MonthVal = { year: 2025, month: 8 }; // matches the API route's EARLIEST_DATE
+function monthIndex(m: MonthVal): number {
+  return m.year * 12 + m.month;
+}
+function addMonths(m: MonthVal, delta: number): MonthVal {
+  const idx = m.year * 12 + (m.month - 1) + delta;
+  return { year: Math.floor(idx / 12), month: (idx % 12) + 1 };
+}
+function clampMonth(m: MonthVal, min: MonthVal, max: MonthVal): MonthVal {
+  if (monthIndex(m) < monthIndex(min)) return min;
+  if (monthIndex(m) > monthIndex(max)) return max;
+  return m;
+}
+function monthRangeLength(from: MonthVal, to: MonthVal): number {
+  return monthIndex(to) - monthIndex(from) + 1;
+}
+function monthKey(m: MonthVal): string {
+  return `${m.year}-${String(m.month).padStart(2, "0")}`;
+}
+function parseMonthKey(s: string): MonthVal {
+  const [y, mo] = s.split("-").map(Number);
+  return { year: y, month: mo };
+}
+function monthToDateFrom(m: MonthVal): string {
+  return `${monthKey(m)}-01`;
+}
+function monthToDateTo(m: MonthVal): string {
+  const lastDay = new Date(m.year, m.month, 0).getDate();
+  return `${monthKey(m)}-${String(lastDay).padStart(2, "0")}`;
+}
+// The immediately preceding, non-overlapping range of the same length.
+function previousPeriod(from: MonthVal, to: MonthVal): { from: MonthVal; to: MonthVal } {
+  const len = monthRangeLength(from, to);
+  const newTo = addMonths(from, -1);
+  const newFrom = addMonths(newTo, -(len - 1));
+  return { from: newFrom, to: newTo };
+}
+function lastCompleteMonth(): MonthVal {
+  const d = new Date();
+  const idx = d.getFullYear() * 12 + d.getMonth() - 1; // the calendar month before the current (in-progress) one
+  return { year: Math.floor(idx / 12), month: (idx % 12) + 1 };
+}
+const MAX_MONTH = lastCompleteMonth();
+function monthOptionsBetween(min: MonthVal, max: MonthVal): MonthVal[] {
+  const opts: MonthVal[] = [];
+  for (let cur = min; monthIndex(cur) <= monthIndex(max); cur = addMonths(cur, 1)) opts.push(cur);
+  return opts;
+}
+
+function MonthSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: MonthVal;
+  onChange: (m: MonthVal) => void;
+}) {
+  const options = useMemo(() => monthOptionsBetween(EARLIEST_MONTH, MAX_MONTH), []);
+  return (
+    <div>
+      <label className="text-[11px] text-gray-600 block mb-1">{label}</label>
+      <select
+        value={monthKey(value)}
+        onChange={(e) => onChange(parseMonthKey(e.target.value))}
+        className="text-xs border border-gray-200 rounded-md px-2 py-1.5 text-gray-800 focus:outline-none focus:border-indigo-400"
+      >
+        {options.map((m) => (
+          <option key={monthKey(m)} value={monthKey(m)}>
+            {monthLabel(m.year, m.month)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 export default function BrandVisibilityBenchmark({
@@ -133,28 +215,44 @@ export default function BrandVisibilityBenchmark({
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const defaultFrom = (() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 3);
-    const iso = d.toISOString().slice(0, 10);
-    return iso < EARLIEST_DATE ? EARLIEST_DATE : iso;
-  })();
-  const [dateFrom, setDateFrom] = useState(defaultFrom);
-  const [dateTo, setDateTo] = useState(today);
-  const [periodAFrom, setPeriodAFrom] = useState(EARLIEST_DATE);
-  const [periodATo, setPeriodATo] = useState(defaultFrom);
-  const [periodBFrom, setPeriodBFrom] = useState(defaultFrom);
-  const [periodBTo, setPeriodBTo] = useState(today);
+  // "Date range" = Period A, always fetched. Defaults to the latest three
+  // complete months available (clamped to not precede EARLIEST_MONTH).
+  const DEFAULT_TO_MONTH = MAX_MONTH;
+  const DEFAULT_FROM_MONTH = clampMonth(addMonths(MAX_MONTH, -2), EARLIEST_MONTH, MAX_MONTH);
+  const [fromMonth, setFromMonth] = useState<MonthVal>(DEFAULT_FROM_MONTH);
+  const [toMonth, setToMonth] = useState<MonthVal>(DEFAULT_TO_MONTH);
+  const [compareMode, setCompareMode] = useState<"off" | "previous" | "custom">("off");
+  const defaultCompare = previousPeriod(DEFAULT_FROM_MONTH, DEFAULT_TO_MONTH);
+  const [compareFromMonth, setCompareFromMonth] = useState<MonthVal>(defaultCompare.from);
+  const [compareToMonth, setCompareToMonth] = useState<MonthVal>(defaultCompare.to);
 
-  const [trend, setTrend] = useState<BenchmarkMonthPoint[] | null>(null);
-  const [trendLoading, setTrendLoading] = useState(false);
-  const [trendError, setTrendError] = useState<string | null>(null);
-  const trendRequestIdRef = useRef(0);
+  function handleFromChange(m: MonthVal) {
+    setFromMonth(m);
+    if (monthIndex(m) > monthIndex(toMonth)) setToMonth(m);
+  }
+  function handleToChange(m: MonthVal) {
+    setToMonth(m);
+    if (monthIndex(m) < monthIndex(fromMonth)) setFromMonth(m);
+  }
+  function handleCompareFromChange(m: MonthVal) {
+    setCompareFromMonth(m);
+    if (monthIndex(m) > monthIndex(compareToMonth)) setCompareToMonth(m);
+  }
+  function handleCompareToChange(m: MonthVal) {
+    setCompareToMonth(m);
+    if (monthIndex(m) < monthIndex(compareFromMonth)) setCompareFromMonth(m);
+  }
 
-  const [periods, setPeriods] = useState<{ a: BenchmarkMonthPoint[]; b: BenchmarkMonthPoint[] } | null>(null);
-  const [periodsLoading, setPeriodsLoading] = useState(false);
-  const [periodsError, setPeriodsError] = useState<string | null>(null);
+  // Period B — only meaningful when compareMode !== "off". For "previous" it
+  // is derived from Period A on every render rather than stored, so it can
+  // never drift out of sync with the Date range controls.
+  const activeCompareRange = compareMode === "previous" ? previousPeriod(fromMonth, toMonth) : { from: compareFromMonth, to: compareToMonth };
+
+  const [trend, setTrend] = useState<BenchmarkMonthPoint[] | null>(null); // Period A timeline
+  const [comparePeriod, setComparePeriod] = useState<BenchmarkMonthPoint[] | null>(null); // Period B timeline
+  const [applying, setApplying] = useState(false);
+  const [dateControlsError, setDateControlsError] = useState<string | null>(null);
+  const applyRequestIdRef = useRef(0);
 
   async function fetchBenchmark() {
     const myId = ++requestIdRef.current;
@@ -196,95 +294,92 @@ export default function BrandVisibilityBenchmark({
     }
   }
 
-  async function fetchTrend() {
-    const myId = ++trendRequestIdRef.current;
-    setTrendLoading(true);
-    setTrendError(null);
-    setTrend(null);
+  async function fetchTimelineFor(from: MonthVal, to: MonthVal): Promise<BenchmarkMonthPoint[]> {
+    const dFrom = monthToDateFrom(from);
+    const dTo = monthToDateTo(to);
     if (!useLiveData) {
-      await new Promise((r) => setTimeout(r, 400));
-      if (myId !== trendRequestIdRef.current) return;
+      await new Promise((r) => setTimeout(r, 300));
       const names = [brand, ...competitors].filter(Boolean);
       const months: BenchmarkMonthPoint[] = [];
-      const start = new Date(dateFrom);
-      const end = new Date(dateTo);
-      for (let d = new Date(start); d <= end; d.setMonth(d.getMonth() + 1)) {
+      for (let m = from; monthIndex(m) <= monthIndex(to); m = addMonths(m, 1)) {
         months.push({
-          year: d.getFullYear(),
-          month: d.getMonth() + 1,
-          brands: names.map((n) => ({ brand: n, mentions: Math.round(100 + (hashSeed(n + d.getMonth()) % 300)) })),
+          year: m.year,
+          month: m.month,
+          brands: names.map((n) => ({ brand: n, mentions: Math.round(100 + (hashSeed(n + m.month) % 300)) })),
         });
       }
-      setTrend(months);
-      setTrendLoading(false);
-      return;
+      return months;
     }
+    const res = await fetch("/api/geo/benchmark-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        brand,
+        competitors,
+        dateFrom: dFrom,
+        dateTo: dTo,
+        platform: effectivePlatform === "all" ? undefined : effectivePlatform,
+        locationCode,
+        languageCode,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error ?? "DataForSEO request failed");
+    return json.timeline;
+  }
+
+  // One Apply action updates the trend and, when Compare with isn't "Off",
+  // the period comparison — brand set, platform, market and language stay
+  // identical for both periods since they all read from the same state above.
+  async function applyDateControls() {
+    const myId = ++applyRequestIdRef.current;
+    setApplying(true);
+    setDateControlsError(null);
     try {
-      const res = await fetch("/api/geo/benchmark-history", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brand, competitors, dateFrom, dateTo, platform: effectivePlatform === "all" ? undefined : effectivePlatform, locationCode, languageCode }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "DataForSEO request failed");
-      if (myId !== trendRequestIdRef.current) return;
-      setTrend(json.timeline);
+      const timelineA = await fetchTimelineFor(fromMonth, toMonth);
+      if (myId !== applyRequestIdRef.current) return;
+      setTrend(timelineA);
+      if (compareMode === "off") {
+        setComparePeriod(null);
+      } else {
+        const range = compareMode === "previous" ? previousPeriod(fromMonth, toMonth) : { from: compareFromMonth, to: compareToMonth };
+        const timelineB = await fetchTimelineFor(range.from, range.to);
+        if (myId !== applyRequestIdRef.current) return;
+        setComparePeriod(timelineB);
+      }
     } catch (err) {
-      if (myId !== trendRequestIdRef.current) return;
-      setTrendError(err instanceof Error ? err.message : "DataForSEO request failed");
+      if (myId !== applyRequestIdRef.current) return;
+      setDateControlsError(err instanceof Error ? err.message : "DataForSEO request failed");
     } finally {
-      if (myId === trendRequestIdRef.current) setTrendLoading(false);
+      if (myId === applyRequestIdRef.current) setApplying(false);
     }
   }
 
-  async function fetchPeriodsCompare() {
-    setPeriodsLoading(true);
-    setPeriodsError(null);
-    setPeriods(null);
-    if (!useLiveData) {
-      await new Promise((r) => setTimeout(r, 400));
-      const names = [brand, ...competitors].filter(Boolean);
-      const mk = (seedExtra: string) => [
-        { year: 2026, month: 1, brands: names.map((n) => ({ brand: n, mentions: Math.round(100 + (hashSeed(n + seedExtra) % 300)) })) },
-      ];
-      setPeriods({ a: mk("A"), b: mk("B") });
-      setPeriodsLoading(false);
-      return;
-    }
-    try {
-      const [resA, resB] = await Promise.all([
-        fetch("/api/geo/benchmark-history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brand, competitors, dateFrom: periodAFrom, dateTo: periodATo, platform: effectivePlatform === "all" ? undefined : effectivePlatform, locationCode, languageCode }),
-        }).then((r) => r.json()),
-        fetch("/api/geo/benchmark-history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brand, competitors, dateFrom: periodBFrom, dateTo: periodBTo, platform: effectivePlatform === "all" ? undefined : effectivePlatform, locationCode, languageCode }),
-        }).then((r) => r.json()),
-      ]);
-      if (resA.error) throw new Error(resA.error);
-      if (resB.error) throw new Error(resB.error);
-      setPeriods({ a: resA.timeline, b: resB.timeline });
-    } catch (err) {
-      setPeriodsError(err instanceof Error ? err.message : "DataForSEO request failed");
-    } finally {
-      setPeriodsLoading(false);
-    }
-  }
-
+  // Keeps "unavailable" (no API entry for a name / zero denominator) distinct
+  // from a measured 0, for both the per-brand totals and the resulting share.
   function periodTotals(points: BenchmarkMonthPoint[]) {
     const names = [brand, ...competitors].filter(Boolean);
     const totals: Record<string, number> = {};
-    names.forEach((n) => (totals[n] = 0));
+    const hasData: Record<string, boolean> = {};
+    names.forEach((n) => {
+      totals[n] = 0;
+      hasData[n] = false;
+    });
     for (const month of points) {
       for (const b of month.brands) {
-        if (totals[b.brand] !== undefined && b.mentions !== null) totals[b.brand] += b.mentions;
+        if (totals[b.brand] === undefined) continue;
+        if (b.mentions !== null) {
+          totals[b.brand] += b.mentions;
+          hasData[b.brand] = true;
+        }
       }
     }
-    const sum = Object.values(totals).reduce((s, v) => s + v, 0);
-    return names.map((n) => ({ brand: n, mentions: totals[n], share: sum > 0 ? totals[n] / sum : 0 }));
+    const sum = names.reduce((s, n) => s + (hasData[n] ? totals[n] : 0), 0);
+    return names.map((n) => ({
+      brand: n,
+      mentions: hasData[n] ? totals[n] : null,
+      share: !hasData[n] || sum === 0 ? null : totals[n] / sum,
+    }));
   }
 
   const trendChartData = trend?.map((m) => {
@@ -353,6 +448,9 @@ export default function BrandVisibilityBenchmark({
             </select>
           </div>
         </div>
+        <p className="text-[11px] text-gray-500">
+          Viewing: {PLATFORM_LABEL[effectivePlatform]} · {selectedLocation?.locationName} · {selectedLanguage?.languageName}
+        </p>
         {selectedLanguage && selectedLanguage.platforms.length === 1 && (
           <p className="text-[11px] text-amber-600">
             ChatGPT has no coverage for {selectedLocation?.locationName} / {selectedLanguage.languageName} on this
@@ -386,7 +484,7 @@ export default function BrandVisibilityBenchmark({
               {PLATFORM_LABEL[result.platform as PlatformFilter]} · {result.market} · {result.language}
             </span>
           </div>
-          <table className="w-full text-xs">
+          <table className="w-full text-xs [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
             <thead>
               <tr className="text-left text-gray-400 border-b border-gray-100">
                 <th className="py-1.5 font-medium">Brand</th>
@@ -400,21 +498,25 @@ export default function BrandVisibilityBenchmark({
                   <td className="py-1.5 text-gray-700">{b.brand}</td>
                   <td className="py-1.5 text-right text-gray-600">{b.mentions === null ? "Unavailable" : b.mentions.toLocaleString("en-US")}</td>
                   <td className="py-1.5 text-right text-gray-900 font-medium">
-                    {b.mentionShare === null ? "—" : `${Math.round(b.mentionShare * 100)}%`}
+                    {b.mentionShare === null ? "Unavailable" : `${Math.round(b.mentionShare * 100)}%`}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p className="text-[11px] text-gray-400">
+          <p className="text-[11px] text-gray-500">
             Share of voice = this brand&apos;s mentions ÷ combined mentions of every name in the brand set above, on
-            the selected platform. &ldquo;Unavailable&rdquo; means the provider returned no entry for that name
-            (coverage gap), distinct from a measured 0.
+            the selected platform. &ldquo;Unavailable&rdquo; means either the provider returned no entry for that
+            name (coverage gap) or the combined mentions across the whole set was zero (no usable denominator) —
+            both distinct from a measured 0, which means the name was checked and found to have no mentions.
           </p>
 
           {result.citationDomains.length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-700 mb-1">Common citation domains in the dataset</h4>
+              <h4 className="text-xs font-semibold text-gray-700 mb-1">Top citation domains returned for this benchmark</h4>
+              <p className="text-[11px] text-gray-400 mb-1.5">
+                Aggregated across every brand in the comparison set above combined, not specific to any single name.
+              </p>
               <ul className="text-xs text-gray-600 list-disc list-inside">
                 {result.citationDomains.map((c) => (
                   <li key={c.url}>{c.title}</li>
@@ -428,26 +530,49 @@ export default function BrandVisibilityBenchmark({
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
         <div>
           <h4 className="text-xs font-semibold text-gray-800">Historical trend</h4>
-          <p className="text-[11px] text-gray-400 mt-1">
-            DataForSEO LLM Mentions Historical API — data starts {EARLIEST_DATE}. Separate dataset from Prompt
-            Monitoring&apos;s run history below (that&apos;s your own saved question runs; this is the provider&apos;s
-            monthly aggregate).
-          </p>
+          <p className="text-[11px] text-gray-500 mt-1">Monthly visibility data from DataForSEO.</p>
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <div>
-            <label className="text-[11px] text-gray-500 block mb-1">From</label>
-            <input type="date" min={EARLIEST_DATE} max={dateTo} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5" />
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex items-end gap-2">
+            <MonthSelect label="From" value={fromMonth} onChange={handleFromChange} />
+            <MonthSelect label="To" value={toMonth} onChange={handleToChange} />
           </div>
           <div>
-            <label className="text-[11px] text-gray-500 block mb-1">To</label>
-            <input type="date" min={dateFrom} max={today} value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5" />
+            <label className="text-[11px] text-gray-600 block mb-1">Compare with</label>
+            <select
+              value={compareMode}
+              onChange={(e) => setCompareMode(e.target.value as "off" | "previous" | "custom")}
+              className="text-xs border border-gray-200 rounded-md px-2 py-1.5 text-gray-800 focus:outline-none focus:border-indigo-400"
+            >
+              <option value="off">Off</option>
+              <option value="previous">Previous period</option>
+              <option value="custom">Custom range</option>
+            </select>
           </div>
-          <button onClick={fetchTrend} disabled={trendLoading} className="text-xs px-3 py-1.5 rounded-md border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 transition disabled:opacity-50">
-            {trendLoading ? "Loading…" : "Show trend"}
+          {compareMode === "custom" && (
+            <div className="flex items-end gap-2">
+              <MonthSelect label="Compare from" value={compareFromMonth} onChange={handleCompareFromChange} />
+              <MonthSelect label="Compare to" value={compareToMonth} onChange={handleCompareToChange} />
+            </div>
+          )}
+          <button
+            onClick={applyDateControls}
+            disabled={applying}
+            className="text-xs px-4 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition disabled:opacity-50"
+          >
+            {applying ? "Applying…" : "Apply"}
           </button>
-          {trendError && <span className="text-xs text-red-500">{trendError}</span>}
         </div>
+        {dateControlsError && <p className="text-xs text-red-500">{dateControlsError}</p>}
+        {compareMode === "custom" && monthRangeLength(fromMonth, toMonth) !== monthRangeLength(compareFromMonth, compareToMonth) && (
+          <p className="text-[11px] text-amber-600">
+            Date range covers {monthRangeLength(fromMonth, toMonth)} month{monthRangeLength(fromMonth, toMonth) === 1 ? "" : "s"};
+            the compare range covers {monthRangeLength(compareFromMonth, compareToMonth)} month
+            {monthRangeLength(compareFromMonth, compareToMonth) === 1 ? "" : "s"} — raw totals cover different
+            durations, so compare shares, not totals.
+          </p>
+        )}
 
         {trendChartData && trendChartData.length > 0 && (
           <div className="h-48">
@@ -466,54 +591,45 @@ export default function BrandVisibilityBenchmark({
           <p className="text-xs text-gray-400">No months in this range have the brand counts needed for a comparable share of voice.</p>
         )}
 
-        <div className="border-t border-gray-100 pt-4 space-y-3">
-          <h4 className="text-xs font-semibold text-gray-800">Compare periods</h4>
-          <p className="text-[11px] text-gray-400">Brand set and filters stay fixed — only the date range changes between the two periods.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="border border-gray-100 rounded-md p-2.5">
-              <p className="text-[11px] font-medium text-gray-600 mb-1.5">Period A</p>
-              <div className="flex gap-2">
-                <input type="date" min={EARLIEST_DATE} value={periodAFrom} onChange={(e) => setPeriodAFrom(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1 flex-1" />
-                <input type="date" value={periodATo} onChange={(e) => setPeriodATo(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1 flex-1" />
-              </div>
-            </div>
-            <div className="border border-gray-100 rounded-md p-2.5">
-              <p className="text-[11px] font-medium text-gray-600 mb-1.5">Period B</p>
-              <div className="flex gap-2">
-                <input type="date" min={EARLIEST_DATE} value={periodBFrom} onChange={(e) => setPeriodBFrom(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1 flex-1" />
-                <input type="date" value={periodBTo} onChange={(e) => setPeriodBTo(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1 flex-1" />
-              </div>
-            </div>
-          </div>
-          <button onClick={fetchPeriodsCompare} disabled={periodsLoading} className="text-xs px-3 py-1.5 rounded-md border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 transition disabled:opacity-50">
-            {periodsLoading ? "Comparing…" : "Compare periods"}
-          </button>
-          {periodsError && <span className="ml-2 text-xs text-red-500">{periodsError}</span>}
-
-          {periods && (
-            <table className="w-full text-xs">
+        {comparePeriod && (
+          <div className="border-t border-gray-100 pt-4 space-y-3">
+            <h4 className="text-xs font-semibold text-gray-800">Period comparison</h4>
+            <p className="text-[11px] text-gray-500">
+              {monthLabel(fromMonth.year, fromMonth.month)}–{monthLabel(toMonth.year, toMonth.month)} vs.{" "}
+              {monthLabel(activeCompareRange.from.year, activeCompareRange.from.month)}–
+              {monthLabel(activeCompareRange.to.year, activeCompareRange.to.month)}. Brand set, platform, market and
+              language are the same for both periods.
+            </p>
+            <table className="w-full text-xs [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
               <thead>
                 <tr className="text-left text-gray-400 border-b border-gray-100">
                   <th className="py-1.5 font-medium">Brand</th>
-                  <th className="py-1.5 font-medium text-right">Period A share</th>
-                  <th className="py-1.5 font-medium text-right">Period B share</th>
+                  <th className="py-1.5 font-medium text-right">
+                    {monthLabel(fromMonth.year, fromMonth.month)}–{monthLabel(toMonth.year, toMonth.month)}
+                  </th>
+                  <th className="py-1.5 font-medium text-right">
+                    {monthLabel(activeCompareRange.from.year, activeCompareRange.from.month)}–
+                    {monthLabel(activeCompareRange.to.year, activeCompareRange.to.month)}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {periodTotals(periods.a).map((rowA) => {
-                  const rowB = periodTotals(periods.b).find((r) => r.brand === rowA.brand);
+                {periodTotals(trend ?? []).map((rowA) => {
+                  const rowB = periodTotals(comparePeriod).find((r) => r.brand === rowA.brand);
                   return (
                     <tr key={rowA.brand} className="border-b border-gray-50 last:border-0">
                       <td className="py-1.5 text-gray-700">{rowA.brand}</td>
-                      <td className="py-1.5 text-right text-gray-600">{Math.round(rowA.share * 100)}%</td>
-                      <td className="py-1.5 text-right text-gray-600">{rowB ? Math.round(rowB.share * 100) : 0}%</td>
+                      <td className="py-1.5 text-right text-gray-600">{rowA.share === null ? "Unavailable" : `${Math.round(rowA.share * 100)}%`}</td>
+                      <td className="py-1.5 text-right text-gray-600">
+                        {!rowB || rowB.share === null ? "Unavailable" : `${Math.round(rowB.share * 100)}%`}
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <MetricsMethodology scope="benchmark" />
