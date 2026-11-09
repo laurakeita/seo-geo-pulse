@@ -124,7 +124,7 @@ function MonthSelect({
       <select
         value={monthKey(value)}
         onChange={(e) => onChange(parseMonthKey(e.target.value))}
-        className="text-xs border border-gray-200 rounded-md px-2 py-1.5 text-gray-800 focus:outline-none focus:border-indigo-400"
+        className="text-xs border border-gray-200 rounded-md px-2 py-1.5 text-gray-800 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
       >
         {options.map((m) => (
           <option key={monthKey(m)} value={monthKey(m)}>
@@ -406,11 +406,11 @@ export default function BrandVisibilityBenchmark({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-gray-500 block mb-1">Focal brand</label>
-            <input value={brand} onChange={(e) => setBrand(e.target.value)} className="w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400" />
+            <input value={brand} onChange={(e) => setBrand(e.target.value)} className="text-gray-900 placeholder:text-gray-400 w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
           </div>
           <div>
             <label className="text-xs text-gray-500 block mb-1">Competitors (comma separated)</label>
-            <input value={competitorsInput} onChange={(e) => setCompetitorsInput(e.target.value)} className="w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400" />
+            <input value={competitorsInput} onChange={(e) => setCompetitorsInput(e.target.value)} className="text-gray-900 placeholder:text-gray-400 w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
           </div>
         </div>
 
@@ -420,7 +420,7 @@ export default function BrandVisibilityBenchmark({
             <select
               value={locationCode}
               onChange={(e) => selectLocation(Number(e.target.value))}
-              className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 min-w-[140px]"
+              className="text-gray-900 placeholder:text-gray-400 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 min-w-[140px]"
             >
               {locations.map((l) => (
                 <option key={l.locationCode} value={l.locationCode}>{l.locationName}</option>
@@ -432,7 +432,7 @@ export default function BrandVisibilityBenchmark({
             <select
               value={languageCode}
               onChange={(e) => selectLanguage(e.target.value)}
-              className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 min-w-[140px]"
+              className="text-gray-900 placeholder:text-gray-400 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 min-w-[140px]"
             >
               {(selectedLocation?.languages ?? []).map((l) => (
                 <option key={l.languageCode} value={l.languageCode}>{l.languageName}</option>
@@ -441,7 +441,7 @@ export default function BrandVisibilityBenchmark({
           </div>
           <div>
             <label className="text-xs text-gray-500 block mb-1">Platform</label>
-            <select value={effectivePlatform} onChange={(e) => setPlatform(e.target.value as PlatformFilter)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400">
+            <select value={effectivePlatform} onChange={(e) => setPlatform(e.target.value as PlatformFilter)} className="text-gray-900 placeholder:text-gray-400 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
               {availablePlatforms.map((p) => (
                 <option key={p} value={p}>{PLATFORM_LABEL[p]}</option>
               ))}
@@ -543,7 +543,7 @@ export default function BrandVisibilityBenchmark({
             <select
               value={compareMode}
               onChange={(e) => setCompareMode(e.target.value as "off" | "previous" | "custom")}
-              className="text-xs border border-gray-200 rounded-md px-2 py-1.5 text-gray-800 focus:outline-none focus:border-indigo-400"
+              className="text-xs border border-gray-200 rounded-md px-2 py-1.5 text-gray-800 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             >
               <option value="off">Off</option>
               <option value="previous">Previous period</option>

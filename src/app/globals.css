@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #0a0a0f;
-  --color-foreground: #e2e8f0;
+  /* This dashboard is light-themed throughout (Dashboard.tsx sets
+     bg-[#F7F6F3] on <main>) — these two variables are the only place that
+     still assumed a dark theme, left over from create-next-app's default.
+     Any form control that doesn't set its own text color (several didn't)
+     inherited #e2e8f0 from body, which read as barely-visible pale text on
+     a white input background. */
+  --color-background: #f7f6f3;
+  --color-foreground: #111827;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

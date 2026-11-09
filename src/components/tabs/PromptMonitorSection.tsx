@@ -49,6 +49,14 @@ const SAMPLE_MODEL: Record<ResponsePlatform, string> = {
   perplexity: "sonar",
 };
 
+// Fixture links so reviewers can see how citation rendering works without a
+// live call — clearly labeled "Example sources" in the UI, never presented
+// as real retrieved citations.
+const SAMPLE_CITATIONS: Citation[] = [
+  { title: "reddit.com/r/SkincareAddiction", url: "https://www.reddit.com/r/SkincareAddiction/" },
+  { title: "byrdie.com — Best Niacinamide Serums", url: "https://www.byrdie.com/best-niacinamide-serums" },
+];
+
 // Canned, clearly-fictional responses for "Interactive demo" mode (no live
 // API call, no cost) — not a real AI output.
 function buildSampleResults(
@@ -65,8 +73,11 @@ function buildSampleResults(
       const mentioned = names.filter((_, idx) => (seed >> idx) % 3 !== 0);
       const text =
         mentioned.length > 0
-          ? `(Sample response) For a question like this, brands commonly mentioned include: ${mentioned.join(", ")}. Actual content would vary by platform, model, and live web-search results at the time.`
+          ? `(Sample response) For a question like this, brands commonly mentioned include: ${mentioned.join(", ")}. Actual content would vary by platform, model, and live web-search results at the time.\n\nThings shoppers in this category usually compare:\n- Active ingredient concentration\n- Price per ml\n- Reviews from similar skin types`
           : `(Sample response) Answers to this kind of question typically list general buying criteria rather than naming one specific brand.`;
+      // Varies deterministically so the demo shows both "has citations" and
+      // "no citations" states, per the brief's ask to verify both render.
+      const hasCitations = mentioned.length > 0 && seed % 2 === 0;
       results.push({
         platform,
         prompt,
@@ -75,7 +86,7 @@ function buildSampleResults(
         webSearchUsed: true,
         responseText: text,
         mentionedBrands: mentioned,
-        citations: [],
+        citations: hasCitations ? SAMPLE_CITATIONS : [],
       });
     });
   }
@@ -292,10 +303,35 @@ export default function PromptMonitorSection({
     );
   }, [results, brand, competitors]);
 
-  const visibleResults = useMemo(() => {
-    if (!results) return [];
-    return onlyCompetitorAppearances ? competitorOnlyResults : results;
+  // Groups the flat results list into one entry per question, each holding
+  // its per-platform rows in original order — the "Where competitors
+  // appeared" filter narrows this before grouping, so a question with no
+  // matching rows simply doesn't produce a group.
+  const questionGroups = useMemo(() => {
+    const list = onlyCompetitorAppearances ? competitorOnlyResults : results ?? [];
+    const order: string[] = [];
+    const byPrompt = new Map<string, PromptResponseResult[]>();
+    for (const r of list) {
+      if (!byPrompt.has(r.prompt)) {
+        byPrompt.set(r.prompt, []);
+        order.push(r.prompt);
+      }
+      byPrompt.get(r.prompt)!.push(r);
+    }
+    return order.map((prompt) => ({ prompt, rows: byPrompt.get(prompt)! }));
   }, [results, onlyCompetitorAppearances, competitorOnlyResults]);
+
+  // Compact headline: the focal brand's mention rate per platform, across
+  // every question sent. The full per-brand/per-platform breakdown is still
+  // computed in `comparison` above but no longer rendered as a table — the
+  // formula itself lives in "How metrics are calculated."
+  const headline = useMemo(() => {
+    if (!comparison) return [];
+    return comparison.map((c) => {
+      const row = c.rows.find((r) => r.name === brand);
+      return { platform: c.platform, count: row?.count ?? 0, total: c.analyzed };
+    });
+  }, [comparison, brand]);
 
   return (
     <div className="space-y-5">
@@ -313,7 +349,7 @@ export default function PromptMonitorSection({
           <select
             value={selectedSavedTestId}
             onChange={(e) => loadSavedTest(e.target.value)}
-            className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 min-w-[160px]"
+            className="text-gray-900 placeholder:text-gray-400 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 min-w-[160px]"
           >
             <option value="">— Select a saved test —</option>
             {savedTests.map((t) => (
@@ -343,7 +379,7 @@ export default function PromptMonitorSection({
                 }}
                 placeholder="Name this saved test"
                 autoFocus
-                className="text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 w-44"
+                className="text-gray-900 placeholder:text-gray-400 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 w-44"
               />
               <button onClick={confirmSaveCurrentAsTest} className="text-xs px-2.5 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition">
                 Save
@@ -375,7 +411,7 @@ export default function PromptMonitorSection({
                   setPrompts((prev) => prev.map((pr) => (pr.id === p.id ? { ...pr, text: e.target.value } : pr)))
                 }
                 rows={2}
-                className="flex-1 text-xs text-gray-800 border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400"
+                className="flex-1 text-xs text-gray-800 border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
               <button
                 onClick={() => removePrompt(p.id)}
@@ -393,7 +429,7 @@ export default function PromptMonitorSection({
                 onChange={(e) => setDraftPrompt(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addPrompt()}
                 placeholder="e.g. Recommend a few sunscreens for sensitive skin"
-                className="flex-1 text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400"
+                className="text-gray-900 placeholder:text-gray-400 flex-1 text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
               <button
                 onClick={addPrompt}
@@ -415,7 +451,7 @@ export default function PromptMonitorSection({
             <input
               value={brand}
               onChange={(e) => setBrand(e.target.value)}
-              className="w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400"
+              className="text-gray-900 placeholder:text-gray-400 w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
           <div>
@@ -423,7 +459,7 @@ export default function PromptMonitorSection({
             <input
               value={competitorsInput}
               onChange={(e) => setCompetitorsInput(e.target.value)}
-              className="w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400"
+              className="text-gray-900 placeholder:text-gray-400 w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
           <div>
@@ -432,7 +468,7 @@ export default function PromptMonitorSection({
               value={market}
               onChange={(e) => setMarket(e.target.value)}
               placeholder="e.g. Taiwan"
-              className="w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400"
+              className="text-gray-900 placeholder:text-gray-400 w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
           <div>
@@ -441,7 +477,7 @@ export default function PromptMonitorSection({
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
               placeholder="e.g. Traditional Chinese"
-              className="w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400"
+              className="text-gray-900 placeholder:text-gray-400 w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
         </div>
@@ -479,7 +515,7 @@ export default function PromptMonitorSection({
             value={geoCode}
             onChange={(e) => setGeoCode(e.target.value.toUpperCase().slice(0, 2))}
             disabled={!webSearch}
-            className="w-12 text-xs border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-indigo-400 disabled:opacity-50"
+            className="text-gray-900 placeholder:text-gray-400 w-12 text-xs border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:opacity-50"
           />
         </label>
         <p className="text-[11px] text-gray-400 -mt-2">
@@ -505,68 +541,32 @@ export default function PromptMonitorSection({
       </div>
 
       {comparison && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-5">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
           {!useLiveData && (
             <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-200 text-amber-700 bg-amber-50 font-medium">
               Interactive demo — sample responses, not real AI output
             </span>
           )}
 
-          {comparison.map(({ platform, requested, analyzed, empty, errored, rows, models }) => (
-            <div key={platform} className="border border-gray-100 rounded-lg p-3">
-              <div className="flex items-center justify-between flex-wrap gap-1 mb-2">
-                <span className="text-xs font-semibold text-gray-800">
-                  {PLATFORM_LABEL[platform]}
-                  {models.length > 0 && <span className="ml-1.5 text-[11px] text-gray-400 font-mono font-normal">{models.join(", ")}</span>}
-                </span>
-                <span className="text-[11px] text-gray-400">
-                  {requested} requested · {analyzed} analyzed
-                  {empty > 0 ? ` · ${empty} empty` : ""}
-                  {errored > 0 ? ` · ${errored} failed` : ""}
-                </span>
-              </div>
-              {analyzed === 0 ? (
-                <p className="text-xs text-gray-600">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-200 text-amber-700 bg-amber-50 font-medium mr-1.5">
-                    Unavailable
-                  </span>
-                  {errored > 0 && empty > 0
-                    ? "every request either failed or returned no usable text — see details below."
-                    : errored > 0
-                      ? "all requests to this platform failed — see details below."
-                      : empty > 0
-                        ? "requests succeeded but returned no usable text — see details below."
-                        : "no questions were sent to this platform."}
-                </p>
-              ) : analyzed === 1 ? (
-                <p className="text-xs text-gray-700">
-                  Brands mentioned:{" "}
-                  {rows.filter((r) => r.count > 0).length > 0
-                    ? rows.filter((r) => r.count > 0).map((r) => r.name).join(", ")
-                    : "none of the tracked names"}
-                </p>
-              ) : (
-                <table className="w-full text-xs [&_td]:px-2 [&_td:first-child]:pl-0 [&_td:last-child]:pr-0">
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.name} className="border-b border-gray-50 last:border-0">
-                        <td className="py-1.5 text-gray-700">{r.name}</td>
-                        <td className="py-1.5 text-right text-gray-900 font-medium whitespace-nowrap">
-                          {r.count}/{r.total} responses · {r.total > 0 ? Math.round((r.count / r.total) * 100) : 0}%
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-700 mb-2">Brand mention rate by platform</h4>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+              {headline.map((h) => (
+                <div key={h.platform} className="flex items-center gap-1.5 text-xs">
+                  <span className="font-medium text-gray-800">{PLATFORM_LABEL[h.platform]}</span>
+                  {h.total > 0 ? (
+                    <span className="text-gray-500">
+                      {h.count}/{h.total} responses · {Math.round((h.count / h.total) * 100)}%
+                    </span>
+                  ) : (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-200 text-amber-700 bg-amber-50 font-medium">
+                      Unavailable
+                    </span>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-          <p className="text-[11px] text-gray-400">
-            Prompt Mention Rate = mentions ÷ successfully analyzed responses for that platform — denominators differ
-            by platform when a request fails or returns no usable content. A 0 means the brand was checked and not
-            found, not that data is missing. &ldquo;Mentioned&rdquo; means the name matched in the text — this does
-            not yet analyze whether the answer recommends the brand.
-          </p>
+          </div>
 
           {competitorOnlyResults.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 space-y-1">
@@ -577,68 +577,26 @@ export default function PromptMonitorSection({
                   onChange={(e) => setOnlyCompetitorAppearances(e.target.checked)}
                   className="h-3.5 w-3.5 accent-indigo-600"
                 />
-                Where competitors appeared — show only the {competitorOnlyResults.length} answer
-                {competitorOnlyResults.length === 1 ? "" : "s"} that mention a competitor but not {brand || "the focal brand"}
+                Where competitors appeared ({competitorOnlyResults.length})
               </label>
               <p className="text-[11px] text-gray-500 pl-6">Shows answers that mention a tracked competitor but omit the focal brand.</p>
             </div>
           )}
 
-          <div>
-            <h4 className="text-xs font-semibold text-gray-700 mb-2">Inspect individual answers</h4>
-            <div className="space-y-1.5">
-              {visibleResults.map((r, i) => {
-                const key = `${r.platform}-${r.prompt}-${i}`;
-                const isOpen = expanded === key;
-                return (
-                  <div key={key} className="border border-gray-100 rounded-md">
-                    <button
-                      onClick={() => setExpanded(isOpen ? null : key)}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
-                    >
-                      <span className="text-[11px] text-gray-700 truncate flex-1">
-                        <span className="font-medium">{PLATFORM_LABEL[r.platform]}</span> — {r.prompt}
-                      </span>
-                      <StatusBadge status={r.status} />
-                    </button>
-                    {isOpen && (
-                      <div className="px-3 pb-3 space-y-2 text-xs">
-                        {r.status === "error" && <p className="text-red-500">{r.error}</p>}
-                        {r.status === "empty" && <p className="text-gray-400">Request succeeded; the response had no usable text.</p>}
-                        {r.modelName && (
-                          <p className="text-gray-400">
-                            Model: <span className="font-mono">{r.modelName}</span>
-                            {r.webSearchUsed !== null && ` · web search ${r.webSearchUsed ? "used" : "not used"}`}
-                          </p>
-                        )}
-                        {r.responseText && (
-                          <p className="text-gray-700 whitespace-pre-wrap bg-gray-50 border border-gray-100 rounded-md p-2">
-                            {r.responseText}
-                          </p>
-                        )}
-                        {r.mentionedBrands.length > 0 && (
-                          <p className="text-gray-600">Mentioned: {r.mentionedBrands.join(", ")}</p>
-                        )}
-                        {r.citations.length > 0 && (
-                          <div>
-                            <p className="text-gray-500 mb-1">Citations:</p>
-                            <ul className="list-disc list-inside text-gray-600">
-                              {r.citations.map((c: Citation) => (
-                                <li key={c.url}>
-                                  <a href={c.url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
-                                    {c.title}
-                                  </a>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+          <div className="space-y-3">
+            {questionGroups.map((g) => (
+              <QuestionGroup
+                key={g.prompt}
+                prompt={g.prompt}
+                rows={g.rows}
+                useLiveData={useLiveData}
+                expandedKey={expanded}
+                onToggle={(key) => setExpanded((prev) => (prev === key ? null : key))}
+              />
+            ))}
+            {questionGroups.length === 0 && (
+              <p className="text-xs text-gray-400">No answers match this filter.</p>
+            )}
           </div>
         </div>
       )}
@@ -658,4 +616,191 @@ function StatusBadge({ status }: { status: PromptResponseResult["status"] }) {
         ? "border-gray-200 text-gray-500 bg-gray-50"
         : "border-red-200 text-red-500 bg-red-50";
   return <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${style}`}>{status}</span>;
+}
+
+// One question, shown once, with a compact platform row underneath for each
+// platform that answered it.
+function QuestionGroup({
+  prompt,
+  rows,
+  useLiveData,
+  expandedKey,
+  onToggle,
+}: {
+  prompt: string;
+  rows: PromptResponseResult[];
+  useLiveData: boolean;
+  expandedKey: string | null;
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <div className="border border-gray-100 rounded-lg p-3">
+      <p className="text-xs font-medium text-gray-800 mb-1.5">{prompt}</p>
+      <div>
+        {rows.map((r) => {
+          const key = `${r.platform}::${prompt}`;
+          return (
+            <PlatformRow
+              key={r.platform}
+              r={r}
+              useLiveData={useLiveData}
+              isOpen={expandedKey === key}
+              onToggle={() => onToggle(key)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Model name + search status, condensed to one line. "Web search used" is
+// only ever shown for a live answer where the API itself confirmed it —
+// never inferred from the request settings.
+function metadataLine(r: PromptResponseResult, useLiveData: boolean): string {
+  const parts: string[] = [];
+  if (!useLiveData) parts.push("Sample response");
+  if (r.modelName) parts.push(`Model: ${r.modelName}`);
+  if (useLiveData && r.webSearchUsed === true) parts.push("Web search used");
+  return parts.join(" · ");
+}
+
+function PlatformRow({
+  r,
+  useLiveData,
+  isOpen,
+  onToggle,
+}: {
+  r: PromptResponseResult;
+  useLiveData: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const canExpand = r.status === "ok" && Boolean(r.responseText);
+  return (
+    <div className="py-2 border-b border-gray-50 last:border-0">
+      <div className="flex items-start justify-between gap-2 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <span className="text-xs font-medium text-gray-800 shrink-0">{PLATFORM_LABEL[r.platform]}</span>
+          <StatusBadge status={r.status} />
+          {r.status === "ok" && (
+            <span className="text-[11px] text-gray-600">
+              {r.mentionedBrands.length > 0 ? `Mentioned: ${r.mentionedBrands.join(", ")}` : "No tracked brand mentioned"}
+            </span>
+          )}
+          {r.status === "empty" && <span className="text-[11px] text-gray-400">No usable text returned</span>}
+          {r.status === "error" && <span className="text-[11px] text-red-500">{r.error}</span>}
+        </div>
+        {canExpand && (
+          <button onClick={onToggle} className="text-[11px] text-indigo-600 hover:underline shrink-0">
+            {isOpen ? "Hide answer" : "View answer"}
+          </button>
+        )}
+      </div>
+      {isOpen && canExpand && (
+        <div className="mt-2 max-w-prose space-y-2">
+          <p className="text-[11px] text-gray-400">{metadataLine(r, useLiveData)}</p>
+          <div className="text-xs text-gray-700 bg-gray-50 border border-gray-100 rounded-md p-3">
+            <FormattedAnswer text={r.responseText!} />
+          </div>
+          <CitationsBlock r={r} useLiveData={useLiveData} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Lightweight paragraph/list rendering for plain-text and markdown-ish model
+// output — no markdown library, just enough structure to read comfortably:
+// blank-line-separated paragraphs, with "-"/"*" or "1." lines as lists.
+function FormattedAnswer({ text }: { text: string }) {
+  const blocks = text
+    .split(/\n{2,}/)
+    .map((b) => b.trim())
+    .filter(Boolean);
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, i) => {
+        const lines = block
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean);
+        const isBulletList = lines.length > 0 && lines.every((l) => /^[-*]\s+/.test(l));
+        const isNumberedList = lines.length > 0 && lines.every((l) => /^\d+[.)]\s+/.test(l));
+        if (isBulletList) {
+          return (
+            <ul key={i} className="list-disc list-inside space-y-0.5">
+              {lines.map((l, j) => (
+                <li key={j}>{l.replace(/^[-*]\s+/, "")}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (isNumberedList) {
+          return (
+            <ol key={i} className="list-decimal list-inside space-y-0.5">
+              {lines.map((l, j) => (
+                <li key={j}>{l.replace(/^\d+[.)]\s+/, "")}</li>
+              ))}
+            </ol>
+          );
+        }
+        return (
+          <p key={i}>
+            {lines.map((l, j) => (
+              <span key={j}>
+                {l}
+                {j < lines.length - 1 && <br />}
+              </span>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+// Citations have three different honest "nothing to show" states for a live
+// answer (ran search but got none / search was off / API didn't confirm
+// either way) — collapsing them into one generic message would misrepresent
+// what actually happened. Demo answers use a separate, clearly-labeled
+// fixture instead of pretending to have live citation data.
+function CitationsBlock({ r, useLiveData }: { r: PromptResponseResult; useLiveData: boolean }) {
+  if (!useLiveData) {
+    if (r.citations.length === 0) return null;
+    return (
+      <div>
+        <p className="text-[11px] text-gray-500 mb-0.5">Example sources</p>
+        <p className="text-[10px] text-gray-400 mb-1">Fixture links for demo purposes — not retrieved from a live response.</p>
+        <ul className="text-xs space-y-0.5">
+          {r.citations.map((c) => (
+            <li key={c.url}>
+              <a href={c.url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                {c.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  if (r.citations.length > 0) {
+    return (
+      <div>
+        <p className="text-[11px] text-gray-500 mb-0.5">Citations</p>
+        <ul className="text-xs space-y-0.5">
+          {r.citations.map((c) => (
+            <li key={c.url}>
+              <a href={c.url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                {c.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  if (r.webSearchUsed === true) return <p className="text-[11px] text-gray-400">No citations returned.</p>;
+  if (r.webSearchUsed === false) return <p className="text-[11px] text-gray-400">Web search was off.</p>;
+  return <p className="text-[11px] text-gray-400">Search status unavailable.</p>;
 }

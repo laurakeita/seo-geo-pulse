@@ -34,7 +34,7 @@ export default function AnalysisSettingsBar({
             value={brandName}
             onChange={(e) => onBrandNameChange(e.target.value)}
             placeholder="e.g. GlowLab Skincare"
-            className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:border-indigo-400"
+            className="text-gray-900 placeholder:text-gray-400 w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
           />
         </div>
         <div className="flex-1 min-w-[160px]">
@@ -43,7 +43,7 @@ export default function AnalysisSettingsBar({
             value={domain}
             onChange={(e) => onDomainChange(e.target.value)}
             placeholder="e.g. glowlabskincare.com"
-            className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:border-indigo-400"
+            className="text-gray-900 placeholder:text-gray-400 w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
           />
         </div>
         <div className="flex-[2] min-w-[220px]">
@@ -52,7 +52,7 @@ export default function AnalysisSettingsBar({
             value={keywordsInput}
             onChange={(e) => onKeywordsInputChange(e.target.value)}
             placeholder="e.g. niacinamide serum, hyperpigmentation"
-            className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:border-indigo-400"
+            className="text-gray-900 placeholder:text-gray-400 w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
           />
         </div>
       </div>
@@ -77,7 +77,7 @@ export default function AnalysisSettingsBar({
             value={competitorsInput}
             onChange={(e) => onCompetitorsInputChange(e.target.value)}
             placeholder="e.g. The Ordinary, CeraVe"
-            className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:border-indigo-400"
+            className="text-gray-900 placeholder:text-gray-400 w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
           />
         </div>
       )}

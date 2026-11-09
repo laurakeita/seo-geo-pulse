@@ -19,6 +19,22 @@ function pct(v: number) {
   return `${(v * 100).toFixed(1)}%`;
 }
 
+// CTR is always derived from clicks/impressions at render time (not read
+// from a separately-stored field) so it can never drift from the two
+// numbers it's displayed next to; zero impressions has no meaningful rate.
+function ctrDisplay(clicks: number, impressions: number): string {
+  if (impressions === 0) return "—";
+  return pct(clicks / impressions);
+}
+
+function DemoDataTag() {
+  return (
+    <span className="ml-1 text-[9px] font-normal px-1 py-0.5 rounded-full border border-gray-200 text-gray-400 align-middle whitespace-nowrap">
+      Demo data
+    </span>
+  );
+}
+
 export default function OrganicPulseTab({
   data,
   site,
@@ -154,9 +170,9 @@ export default function OrganicPulseTab({
           <thead>
             <tr className="text-left text-gray-400 border-b border-gray-100">
               <th className="py-2 font-medium">Query</th>
-              <th className="py-2 font-medium text-right">Clicks</th>
-              <th className="py-2 font-medium text-right">Impressions</th>
-              <th className="py-2 font-medium text-right">CTR</th>
+              <th className="py-2 font-medium text-right">Clicks<DemoDataTag /></th>
+              <th className="py-2 font-medium text-right">Impressions<DemoDataTag /></th>
+              <th className="py-2 font-medium text-right">CTR<DemoDataTag /></th>
               <th className="py-2 font-medium text-right">Position</th>
               <th className="py-2 font-medium text-right">Change</th>
             </tr>
@@ -173,7 +189,7 @@ export default function OrganicPulseTab({
                   <td className="py-2 text-gray-800">{q.query}</td>
                   <td className="py-2 text-right text-gray-600">{q.clicks.toLocaleString("en-US")}</td>
                   <td className="py-2 text-right text-gray-600">{q.impressions.toLocaleString("en-US")}</td>
-                  <td className="py-2 text-right text-gray-600">{pct(q.ctr)}</td>
+                  <td className="py-2 text-right text-gray-600">{ctrDisplay(q.clicks, q.impressions)}</td>
                   <td className="py-2 text-right text-gray-600">
                     {hasLive ? (
                       live.status === "error" ? (
@@ -206,9 +222,10 @@ export default function OrganicPulseTab({
           </tbody>
         </table>
         <p className="text-[11px] text-gray-400 mt-2">
+          Traffic metrics use sample data to protect client confidentiality.{" "}
           {hasLivePositions
-            ? "The “SERP position for this check” badge is a real, live DataForSEO rank for this exact query — distinct from the demo “Avg. position” KPI card above. Clicks/impressions/CTR in this table are still demo data — see “How these metrics are calculated” below."
-            : "All fields below are demo data until you fetch live rankings above — see “How these metrics are calculated” below."}
+            ? "The “SERP position for this check” badge above is the one real, live field in this table — distinct from the demo “Avg. position” KPI card higher up."
+            : "Fetch live rankings above to see a real “SERP position for this check” badge next to Position."}
         </p>
       </div>
 
@@ -218,9 +235,9 @@ export default function OrganicPulseTab({
           <thead>
             <tr className="text-left text-gray-400 border-b border-gray-100">
               <th className="py-2 font-medium">Page</th>
-              <th className="py-2 font-medium text-right">Clicks</th>
-              <th className="py-2 font-medium text-right">Impressions</th>
-              <th className="py-2 font-medium text-right">CTR</th>
+              <th className="py-2 font-medium text-right">Clicks<DemoDataTag /></th>
+              <th className="py-2 font-medium text-right">Impressions<DemoDataTag /></th>
+              <th className="py-2 font-medium text-right">CTR<DemoDataTag /></th>
             </tr>
           </thead>
           <tbody>
@@ -229,11 +246,12 @@ export default function OrganicPulseTab({
                 <td className="py-2 text-gray-800 font-mono">{p.url}</td>
                 <td className="py-2 text-right text-gray-600">{p.clicks.toLocaleString("en-US")}</td>
                 <td className="py-2 text-right text-gray-600">{p.impressions.toLocaleString("en-US")}</td>
-                <td className="py-2 text-right text-gray-600">{pct(p.ctr)}</td>
+                <td className="py-2 text-right text-gray-600">{ctrDisplay(p.clicks, p.impressions)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        <p className="text-[11px] text-gray-400 mt-2">Traffic metrics use sample data to protect client confidentiality.</p>
       </div>
 
       <MetricsMethodology scope="organic" />

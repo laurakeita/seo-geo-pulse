@@ -19,7 +19,7 @@ const ORGANIC_ROWS: MethodologyRow[] = [
   { metric: "Avg. position (KPI card)", category: "Demo data", detail: "A fixed demo value — not an average of the Top queries table below." },
   { metric: "Position (Top queries, live)", category: "API value", detail: "DataForSEO SERP API's rank_absolute for the organic result matching your domain." },
   { metric: "Position (Top queries, demo)", category: "Demo data", detail: "Static per-query demo value, shown until you fetch live rankings." },
-  { metric: "Clicks / Impressions / CTR (per query & per page)", category: "Unavailable", detail: "Requires a connected Google Search Console account — not wired up in this prototype." },
+  { metric: "Clicks / Impressions / CTR (per query & per page)", category: "Demo data", detail: "Sample clicks and impressions; CTR is calculated as clicks ÷ impressions (shown as \"—\" if impressions is 0). Traffic metrics use sample data to protect client confidentiality — this is not a live Search Console connection." },
 ];
 
 const PROMPT_ROWS: MethodologyRow[] = [

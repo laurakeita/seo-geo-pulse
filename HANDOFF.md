@@ -385,3 +385,110 @@ Search's Demo data badges and confidentiality sentence render on both
 desktop and mobile. Not re-tested in Safari this round (the earlier
 screen-recording-permission blocker for Safari automation was never
 resolved) — only headless Chrome was used.
+
+## Follow-up round (2026-11-09b): pale inputs, connected results view, citations, organic demo data
+
+Scope: a 4-part brief (with reference screenshots not available to re-derive
+here, worked from the text description) covering Prompt Monitoring's input
+contrast, a results-view redesign, citation rendering, and Organic Pulse's
+per-query/page demo data. Dashboard-only.
+
+**1. Pale input text — root cause, not a one-field patch.** The "Add
+question" field wasn't individually broken: `src/app/globals.css` still had
+`create-next-app`'s default dark-theme variables (`--color-background:
+#0a0a0f`, `--color-foreground: #e2e8f0`) applied to `<body>`, left over from
+scaffolding. This app is light-themed throughout (`Dashboard.tsx` sets
+`bg-[#F7F6F3]` on `<main>`), so that dark-theme foreground was never
+intentional — but any form control that didn't set its own explicit text
+color (several didn't, across `AnalysisSettingsBar.tsx`,
+`BrandVisibilityBenchmark.tsx`, and `PromptMonitorSection.tsx` — not just
+the one field named in the brief) inherited `#e2e8f0` from `body`, which
+reads as barely-visible pale text on a white input. Fixed the CSS variables
+to match the actual theme (`#f7f6f3` / `#111827`), and additionally added
+explicit `text-gray-900 placeholder:text-gray-400` plus a visible
+`focus:ring-2 focus:ring-indigo-100` to every input/textarea/select across
+those three files, for defense-in-depth and consistency with the rest of the
+codebase's explicit-utility-class convention. Verified via CDP: typed "hi"
+into the Add question field and read `getComputedStyle(input).color` —
+confirmed `lab(8.1 ...)` (near-black), not the previous pale value.
+
+**2/3. Prompt Monitoring results — restructured + citations fixed**
+(`PromptMonitorSection.tsx`)
+- Replaced the old "platform summary cards" (one card per platform, with a
+  requested/analyzed/empty/failed line and a per-brand count table) and the
+  separate "Inspect individual answers" list with one connected view: a
+  compact one-line **Brand mention rate by platform** headline (the focal
+  brand's rate only — the full per-brand breakdown is still computed in the
+  `comparison` memo but no longer rendered as a table, per "keep the long
+  metric explanation inside How metrics are calculated"), then **Where
+  competitors appeared** as a compact filter directly above the results, then
+  one group per question (`QuestionGroup`) with a compact `PlatformRow` per
+  platform inside it. Each row leads with brands mentioned (inherent to the
+  design now, since a row is always exactly one answer) and has a **View
+  answer** control that expands the answer directly beneath that row.
+- Added `FormattedAnswer` — a small hand-rolled paragraph/list renderer (no
+  markdown library): blank-line-separated paragraphs, with `-`/`*` or `1.`
+  lines rendered as real `<ul>`/`<ol>`. Demo fixture text now includes a
+  bullet list so this is visibly exercised.
+- Metadata line now shows "Sample response" (demo) or "Web search used"
+  (live, only when the API confirmed it) plus the model name — resolved via
+  `metadataLine()`.
+- **Citations — traced the full path and found the real gap.** Read
+  `extractResponseTextAndCitations()` and `fetchPromptMonitoring()` in
+  `dataforseo.ts` and the `/api/geo/prompt-monitor` route: the live path is
+  structurally correct top to bottom — annotations are pulled from each
+  response's `items[].sections[].annotations[]`, deduped by URL, and passed
+  through to the JSON response unmodified. **Citations were never being
+  "dropped" anywhere in live code.** The actual reason the screenshot showed
+  no citation data is that `buildSampleResults()` (the demo/interactive-demo
+  fixture generator) unconditionally set `citations: []` for every canned
+  answer — demo mode, which is the only mode reachable without a positive
+  DataForSEO balance, simply never had a citations example to show. Fixed by
+  adding a `SAMPLE_CITATIONS` fixture, included on roughly half of demo
+  answers (seeded, deterministic) so both "has citations" and "no citations"
+  states are visible — verified via CDP by expanding all rows across 4
+  questions × 4 platforms and confirming "Example sources" appears on some
+  and not others.
+  - Demo citations render under the heading **"Example sources"** with an
+    explicit "Fixture links for demo purposes — not retrieved from a live
+    response" note, never presented as real.
+  - Live citations render under **"Citations"** when present; when absent,
+    `CitationsBlock` distinguishes three states by `webSearchUsed`: **"No
+    citations returned"** (search ran, API returned none), **"Web search was
+    off"** (`webSearchUsed === false`), **"Search status unavailable"**
+    (`webSearchUsed === null`, i.e. the API didn't confirm either way).
+  - **Not verified against a real live response this round** — same
+    DataForSEO negative-balance constraint as every other round. The code
+    path reads correctly against the documented response shape, but no live
+    call has ever actually been made for this endpoint. If/when the account
+    is funded, this is the first thing worth testing end-to-end.
+
+**4. Organic Pulse per-query/page demo data** (`OrganicPulseTab.tsx`,
+`MetricsMethodology.tsx`)
+- The actual UI tables already rendered real (if synthetic) clicks/
+  impressions/CTR numbers per query and per page — the bug was that the
+  **methodology table** contradicted this, describing that row as
+  `Unavailable`/"Requires a connected Google Search Console account — not
+  wired up in this prototype," which read as if the displayed numbers were
+  fake placeholders or missing. Fixed the methodology row to say "Demo data"
+  and describe the real calculation.
+- CTR is now always derived at render time via `ctrDisplay(clicks,
+  impressions)` (clicks ÷ impressions, `"—"` if impressions is 0) instead of
+  reading a separately-stored mock `ctr` field — guarantees the displayed
+  percentage can never drift from the two numbers next to it.
+- Added a compact "Demo data" tag (`DemoDataTag`) directly on the Clicks /
+  Impressions / CTR column headers in both tables (not on Position, since
+  that column becomes genuinely live after "Fetch live rankings" — labeling
+  the whole table would misrepresent that mixed state).
+- Replaced the "not wired up" framing everywhere in the public copy with
+  "Traffic metrics use sample data to protect client confidentiality" (both
+  table footnotes, matching the KPI-card note from the previous round).
+
+**Verification**: `npx tsc --noEmit`, `npx eslint src --max-warnings=9999`,
+`npm run build` all clean. CDP at 1280px and 390px: confirmed dark input
+text via computed style, confirmed the new grouped Prompt Monitoring view
+(headline strip, filter, per-question groups, single-expand answers,
+paragraph/list formatting, both citation states) on desktop and mobile, and
+confirmed Organic Pulse's Demo data tags and confidentiality copy on both
+widths. Not tested in Safari this round (same unresolved screen-recording
+permission blocker as every prior round).
