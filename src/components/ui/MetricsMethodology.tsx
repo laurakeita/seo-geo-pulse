@@ -21,7 +21,6 @@ const ORGANIC_ROWS: MethodologyRow[] = [
   { metric: "Position (Top queries, demo)", category: "Demo data", detail: "Static per-query demo value, shown until you fetch live rankings." },
   { metric: "Clicks / Impressions / CTR (per query & per page)", category: "Demo data", detail: "Sample clicks and impressions; CTR is calculated as clicks ÷ impressions (shown as \"—\" if impressions is 0). Traffic metrics use sample data to protect client confidentiality — this is not a live Search Console connection." },
   { metric: "Compare periods (Impressions / Clicks / CTR, query & page examples)", category: "Demo data", detail: "Impressions and clicks for the selected date range are summed from the demo traffic trend; query/page-level examples are a seeded, labeled-demo estimate (no real per-day breakdown exists per query/page in this prototype). CTR is total clicks ÷ total impressions for the period; CTR change is shown in percentage points, not a relative percent." },
-  { metric: "Ranking history / trend", category: "Unavailable", detail: "Not tracked in this prototype — only the current live \"SERP position for this check\" is available. A ranking trend would need stored snapshots for the same keyword, market and device over time." },
 ];
 
 const PROMPT_ROWS: MethodologyRow[] = [

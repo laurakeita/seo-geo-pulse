@@ -1,5 +1,10 @@
 "use client";
 
+// Set at build time by the GitHub Pages workflow — that build has no server,
+// so the live-data toggle (and the API routes behind it) can't exist there.
+// Local dev/build and any future Vercel deployment leave this unset.
+const STATIC_BUILD = process.env.NEXT_PUBLIC_STATIC_EXPORT === "1";
+
 interface AnalysisSettingsBarProps {
   brandName: string;
   domain: string;
@@ -57,18 +62,20 @@ export default function AnalysisSettingsBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mt-3">
-        <input
-          id="use-live-data"
-          type="checkbox"
-          checked={useLiveData}
-          onChange={(e) => onUseLiveDataChange(e.target.checked)}
-          className="h-3.5 w-3.5 accent-indigo-600"
-        />
-        <label htmlFor="use-live-data" className="text-xs text-gray-600">
-          Use live DataForSEO data
-        </label>
-      </div>
+      {!STATIC_BUILD && (
+        <div className="flex items-center gap-2 mt-3">
+          <input
+            id="use-live-data"
+            type="checkbox"
+            checked={useLiveData}
+            onChange={(e) => onUseLiveDataChange(e.target.checked)}
+            className="h-3.5 w-3.5 accent-indigo-600"
+          />
+          <label htmlFor="use-live-data" className="text-xs text-gray-600">
+            Use live DataForSEO data
+          </label>
+        </div>
+      )}
 
       {useLiveData && (
         <div className="mt-3">
@@ -83,9 +90,11 @@ export default function AnalysisSettingsBar({
       )}
 
       <p className="text-[11px] text-gray-400 mt-2">
-        {useLiveData
-          ? "Live mode calls the DataForSEO API (billed per request) for AI mention data and real SERP rankings. Clicks/impressions/CTR still require Google Search Console and remain demo data."
-          : "Currently demo data (no live GSC/GA4/GEO tracking connected). Changes here apply instantly to every tab below."}
+        {STATIC_BUILD
+          ? "This hosted preview runs in Interactive demo mode only — live DataForSEO calls need a server, which this static GitHub Pages build doesn't have. Clone the repo and run it locally (or deploy it somewhere with a Node server) to use live mode."
+          : useLiveData
+            ? "Live mode calls the DataForSEO API (billed per request) for AI mention data and real SERP rankings. Clicks/impressions/CTR still require Google Search Console and remain demo data."
+            : "Currently demo data (no live GSC/GA4/GEO tracking connected). Changes here apply instantly to every tab below."}
       </p>
     </div>
   );

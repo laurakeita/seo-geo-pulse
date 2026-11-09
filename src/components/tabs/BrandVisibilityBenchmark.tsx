@@ -160,6 +160,10 @@ export default function BrandVisibilityBenchmark({
   const [languageCode, setLanguageCode] = useState("en");
 
   useEffect(() => {
+    // The static GitHub Pages build has no API routes at all — skip the
+    // fetch entirely there rather than let it 404 into an error message;
+    // the fallback list is a reasonable default for that build, silently.
+    if (process.env.NEXT_PUBLIC_STATIC_EXPORT === "1") return;
     let cancelled = false;
     fetch("/api/geo/benchmark-locations")
       .then((r) => r.json())
