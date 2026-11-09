@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import MetricsMethodology from "@/components/ui/MetricsMethodology";
-import type { BenchmarkMonthPoint, BenchmarkResult } from "@/lib/types";
+import type { BenchmarkMonthPoint, BenchmarkResult, MentionExample } from "@/lib/types";
 
 type PlatformFilter = "chat_gpt" | "google" | "all";
 const PLATFORM_LABEL: Record<PlatformFilter, string> = {
@@ -484,12 +484,27 @@ export default function BrandVisibilityBenchmark({
               {PLATFORM_LABEL[result.platform as PlatformFilter]} · {result.market} · {result.language}
             </span>
           </div>
+          <p className="text-[11px] text-gray-500">
+            This benchmark uses AI questions and answers previously collected by DataForSEO. It shows mentions within
+            the selected dataset, platform, and brand set. Repeating the same lookup does not create new
+            observations — it returns the current snapshot of what&apos;s already been collected.
+          </p>
+          <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-100 rounded-md p-2.5 space-y-1">
+            <p>
+              <strong className="text-gray-700">ChatGPT (United States · English):</strong> questions and answers
+              collected by DataForSEO on this platform — not a representative sample of all user queries.
+            </p>
+            <p>
+              <strong className="text-gray-700">Google AI Overview:</strong> AI-generated summaries captured from
+              Google search results pages, for the selected market and language.
+            </p>
+          </div>
           <table className="w-full text-xs [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
             <thead>
               <tr className="text-left text-gray-400 border-b border-gray-100">
                 <th className="py-1.5 font-medium">Brand</th>
                 <th className="py-1.5 font-medium text-right">Mentions</th>
-                <th className="py-1.5 font-medium text-right">Share of voice</th>
+                <th className="py-1.5 font-medium text-right">Share of Voice (within selected brands)</th>
               </tr>
             </thead>
             <tbody>
@@ -524,6 +539,17 @@ export default function BrandVisibilityBenchmark({
               </ul>
             </div>
           )}
+
+          <MentionExamplesSection
+            brand={brand}
+            competitors={competitors}
+            platform={effectivePlatform === "all" ? undefined : effectivePlatform}
+            locationCode={locationCode}
+            languageCode={languageCode}
+            market={result.market}
+            language={result.language}
+            useLiveData={useLiveData}
+          />
         </div>
       )}
 
@@ -634,5 +660,124 @@ export default function BrandVisibilityBenchmark({
 
       <MetricsMethodology scope="benchmark" />
     </div>
+  );
+}
+
+// Demo fixture for the drill-down — one clearly-labeled example so reviewers
+// can see the shape of a dataset record without a live call.
+const DEMO_EXAMPLE: MentionExample = {
+  platform: "Google AI Overview",
+  question: "What are the best niacinamide serums for combination skin?",
+  answer:
+    "(Example, demo) A dataset record pairs a real question with the AI's full answer text and any cited sources. This fixture illustrates the shape of that data — not a retrieved example.",
+  sources: [{ title: "byrdie.com", url: "https://www.byrdie.com" }],
+};
+
+// "View example questions and answers" — DataForSEO's Search Mentions API,
+// a different endpoint from the mentions/share-of-voice snapshot above. Not
+// auto-fetched on expand (that's a billed live call) — loads on request via
+// the button inside, same pattern as every other live fetch in this app.
+function MentionExamplesSection({
+  brand,
+  competitors,
+  platform,
+  locationCode,
+  languageCode,
+  market,
+  language,
+  useLiveData,
+}: {
+  brand: string;
+  competitors: string[];
+  platform: "chat_gpt" | "google" | undefined;
+  locationCode: number;
+  languageCode: string;
+  market: string;
+  language: string;
+  useLiveData: boolean;
+}) {
+  const [examples, setExamples] = useState<MentionExample[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    setExamples(null);
+    if (!useLiveData) {
+      await new Promise((r) => setTimeout(r, 300));
+      setExamples([DEMO_EXAMPLE]);
+      setLoading(false);
+      return;
+    }
+    try {
+      const res = await fetch("/api/geo/benchmark-examples", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand, competitors, platform, locationCode, languageCode }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "DataForSEO request failed");
+      setExamples(json.examples);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "DataForSEO request failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <details className="border border-gray-100 rounded-lg">
+      <summary className="text-xs font-semibold text-gray-800 px-3 py-2 cursor-pointer select-none">
+        View example questions and answers
+      </summary>
+      <div className="px-3 pb-3 space-y-2">
+        <p className="text-[11px] text-gray-500">
+          Examples from the dataset — {platform ? PLATFORM_LABEL[platform] : "all supported platforms"} · {market} ·{" "}
+          {language}, matching the brand set above.
+        </p>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="text-xs px-3 py-1.5 rounded-md border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 transition disabled:opacity-50"
+        >
+          {loading ? "Loading…" : useLiveData ? "Load examples (live)" : "Load examples (interactive demo)"}
+        </button>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        {examples && examples.length === 0 && (
+          <p className="text-xs text-gray-400">No example questions and answers available for this selection.</p>
+        )}
+        {examples && examples.length > 0 && (
+          <div className="space-y-2">
+            {!useLiveData && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-200 text-amber-700 bg-amber-50 font-medium inline-block">
+                Interactive demo — fixture example, not a real DataForSEO response
+              </span>
+            )}
+            {examples.map((ex, i) => (
+              <div key={i} className="border border-gray-100 rounded-md p-2.5 space-y-1.5">
+                <p className="text-[11px] text-gray-400">{ex.platform}</p>
+                <p className="text-xs font-medium text-gray-800">{ex.question}</p>
+                <p className="text-xs text-gray-700 whitespace-pre-wrap">{ex.answer}</p>
+                {ex.sources.length > 0 && (
+                  <div>
+                    <p className="text-[11px] text-gray-500 mb-0.5">Citations</p>
+                    <ul className="text-xs space-y-0.5">
+                      {ex.sources.map((s) => (
+                        <li key={s.url}>
+                          <a href={s.url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                            {s.title}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }

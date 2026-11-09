@@ -58,36 +58,42 @@ const SAMPLE_CITATIONS: Citation[] = [
 ];
 
 // Canned, clearly-fictional responses for "Interactive demo" mode (no live
-// API call, no cost) — not a real AI output.
+// API call, no cost) — not a real AI output. Each repeat gets its own seed
+// (including repeatIndex) so repeats of the same question genuinely vary,
+// illustrating why "runs per question" is useful even in demo mode.
 function buildSampleResults(
   brand: string,
   competitors: string[],
   prompts: string[],
   platforms: ResponsePlatform[],
+  runsPerQuestion: number,
 ): PromptResponseResult[] {
   const names = [brand, ...competitors].filter(Boolean);
   const results: PromptResponseResult[] = [];
   for (const platform of platforms) {
     prompts.forEach((prompt, i) => {
-      const seed = hashSeed(`${platform}|${prompt}|${i}`);
-      const mentioned = names.filter((_, idx) => (seed >> idx) % 3 !== 0);
-      const text =
-        mentioned.length > 0
-          ? `(Sample response) For a question like this, brands commonly mentioned include: ${mentioned.join(", ")}. Actual content would vary by platform, model, and live web-search results at the time.\n\nThings shoppers in this category usually compare:\n- Active ingredient concentration\n- Price per ml\n- Reviews from similar skin types`
-          : `(Sample response) Answers to this kind of question typically list general buying criteria rather than naming one specific brand.`;
-      // Varies deterministically so the demo shows both "has citations" and
-      // "no citations" states, per the brief's ask to verify both render.
-      const hasCitations = mentioned.length > 0 && seed % 2 === 0;
-      results.push({
-        platform,
-        prompt,
-        status: "ok",
-        modelName: SAMPLE_MODEL[platform],
-        webSearchUsed: true,
-        responseText: text,
-        mentionedBrands: mentioned,
-        citations: hasCitations ? SAMPLE_CITATIONS : [],
-      });
+      for (let repeatIndex = 0; repeatIndex < runsPerQuestion; repeatIndex++) {
+        const seed = hashSeed(`${platform}|${prompt}|${i}|${repeatIndex}`);
+        const mentioned = names.filter((_, idx) => (seed >> idx) % 3 !== 0);
+        const text =
+          mentioned.length > 0
+            ? `(Sample response) For a question like this, brands commonly mentioned include: ${mentioned.join(", ")}. Actual content would vary by platform, model, and live web-search results at the time.\n\nThings shoppers in this category usually compare:\n- Active ingredient concentration\n- Price per ml\n- Reviews from similar skin types`
+            : `(Sample response) Answers to this kind of question typically list general buying criteria rather than naming one specific brand.`;
+        // Varies deterministically so the demo shows both "has citations" and
+        // "no citations" states, per the brief's ask to verify both render.
+        const hasCitations = mentioned.length > 0 && seed % 2 === 0;
+        results.push({
+          platform,
+          prompt,
+          repeatIndex,
+          status: "ok",
+          modelName: SAMPLE_MODEL[platform],
+          webSearchUsed: true,
+          responseText: text,
+          mentionedBrands: mentioned,
+          citations: hasCitations ? SAMPLE_CITATIONS : [],
+        });
+      }
     });
   }
   return results;
@@ -113,6 +119,7 @@ export default function PromptMonitorSection({
   const [language, setLanguage] = useState("Traditional Chinese");
   const [webSearch, setWebSearch] = useState(true);
   const [geoCode, setGeoCode] = useState("TW");
+  const [runsPerQuestion, setRunsPerQuestion] = useState<number>(1);
 
   const [results, setResults] = useState<PromptResponseResult[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -171,6 +178,7 @@ export default function PromptMonitorSection({
       language,
       webSearch,
       webSearchCountryIsoCode: geoCode || undefined,
+      runsPerQuestion,
     };
   }
 
@@ -187,6 +195,7 @@ export default function PromptMonitorSection({
     setLanguage(t.language);
     setWebSearch(t.webSearch);
     setGeoCode(t.webSearchCountryIsoCode ?? "");
+    setRunsPerQuestion(t.runsPerQuestion ?? 1); // saved tests from before this field existed default to 1
   }
 
   function confirmSaveCurrentAsTest() {
@@ -240,7 +249,10 @@ export default function PromptMonitorSection({
     // the only thing standing between a public link and an open billing tap.
     if (!useLiveData) {
       await new Promise((r) => setTimeout(r, 500)); // small delay so it doesn't feel instantaneous/fake
-      finish(buildSampleResults(settings.brand, settings.competitors, settings.prompts, settings.platforms), "demo");
+      finish(
+        buildSampleResults(settings.brand, settings.competitors, settings.prompts, settings.platforms, settings.runsPerQuestion),
+        "demo",
+      );
       return;
     }
 
@@ -255,6 +267,7 @@ export default function PromptMonitorSection({
           platforms: settings.platforms,
           webSearch: settings.webSearch,
           webSearchCountryIsoCode: settings.webSearchCountryIsoCode,
+          runsPerQuestion: settings.runsPerQuestion,
         }),
       });
       const json = await res.json();
@@ -304,21 +317,38 @@ export default function PromptMonitorSection({
   }, [results, brand, competitors]);
 
   // Groups the flat results list into one entry per question, each holding
-  // its per-platform rows in original order — the "Where competitors
-  // appeared" filter narrows this before grouping, so a question with no
-  // matching rows simply doesn't produce a group.
+  // one entry per platform, each holding that (question, platform) pair's
+  // repeats (1 or 5) in order — the "Where competitors appeared" filter
+  // narrows this before grouping, so a question with no matching rows simply
+  // doesn't produce a group.
   const questionGroups = useMemo(() => {
     const list = onlyCompetitorAppearances ? competitorOnlyResults : results ?? [];
-    const order: string[] = [];
+    const promptOrder: string[] = [];
     const byPrompt = new Map<string, PromptResponseResult[]>();
     for (const r of list) {
       if (!byPrompt.has(r.prompt)) {
         byPrompt.set(r.prompt, []);
-        order.push(r.prompt);
+        promptOrder.push(r.prompt);
       }
       byPrompt.get(r.prompt)!.push(r);
     }
-    return order.map((prompt) => ({ prompt, rows: byPrompt.get(prompt)! }));
+    return promptOrder.map((prompt) => {
+      const rowsForPrompt = byPrompt.get(prompt)!;
+      const platformOrder: ResponsePlatform[] = [];
+      const byPlatform = new Map<ResponsePlatform, PromptResponseResult[]>();
+      for (const r of rowsForPrompt) {
+        if (!byPlatform.has(r.platform)) {
+          byPlatform.set(r.platform, []);
+          platformOrder.push(r.platform);
+        }
+        byPlatform.get(r.platform)!.push(r);
+      }
+      const platformGroups = platformOrder.map((platform) => ({
+        platform,
+        repeats: byPlatform.get(platform)!.slice().sort((a, b) => a.repeatIndex - b.repeatIndex),
+      }));
+      return { prompt, platformGroups };
+    });
   }, [results, onlyCompetitorAppearances, competitorOnlyResults]);
 
   // Compact headline: the focal brand's mention rate per platform, across
@@ -505,6 +535,32 @@ export default function PromptMonitorSection({
             <p className="text-[11px] text-amber-600 w-full">† no API geo parameter for this platform — see note below</p>
           )}
         </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="text-xs text-gray-500">Runs per question</label>
+          <div className="flex rounded-md border border-gray-200 overflow-hidden text-xs">
+            <button
+              type="button"
+              onClick={() => setRunsPerQuestion(1)}
+              className={`px-2.5 py-1 ${runsPerQuestion === 1 ? "bg-indigo-600 text-white" : "text-gray-500"}`}
+            >
+              1 run
+            </button>
+            <button
+              type="button"
+              onClick={() => setRunsPerQuestion(5)}
+              className={`px-2.5 py-1 ${runsPerQuestion === 5 ? "bg-indigo-600 text-white" : "text-gray-500"}`}
+            >
+              5 runs
+            </button>
+          </div>
+          {runsPerQuestion === 5 && (
+            <span className="text-[11px] text-gray-400">
+              5 repeats is a small sample from this test — useful for spotting variance, not a statistically robust estimate.
+            </span>
+          )}
+        </div>
+
         <label className="flex items-center gap-1.5 text-xs text-gray-600">
           <input type="checkbox" checked={webSearch} onChange={(e) => setWebSearch(e.target.checked)} className="h-3.5 w-3.5 accent-indigo-600" />
           Web search
@@ -524,6 +580,10 @@ export default function PromptMonitorSection({
           itself; that&apos;s a test scenario, not an enforced location.
         </p>
 
+        <p className="text-[11px] text-gray-500">
+          {prompts.length} question{prompts.length === 1 ? "" : "s"} × {platforms.size} platform{platforms.size === 1 ? "" : "s"} ×{" "}
+          {runsPerQuestion} run{runsPerQuestion === 1 ? "" : "s"} = {prompts.length * platforms.size * runsPerQuestion} requests
+        </p>
         <button
           onClick={run}
           disabled={loading || prompts.length === 0 || platforms.size === 0}
@@ -550,6 +610,11 @@ export default function PromptMonitorSection({
 
           <div>
             <h4 className="text-xs font-semibold text-gray-700 mb-2">Brand mention rate by platform</h4>
+            {prompts.length > 1 && (
+              <p className="text-[11px] text-gray-400 mb-1.5">
+                Rate is across the {prompts.length} selected questions and their usable answers.
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
               {headline.map((h) => (
                 <div key={h.platform} className="flex items-center gap-1.5 text-xs">
@@ -588,7 +653,8 @@ export default function PromptMonitorSection({
               <QuestionGroup
                 key={g.prompt}
                 prompt={g.prompt}
-                rows={g.rows}
+                platformGroups={g.platformGroups}
+                brand={brand}
                 useLiveData={useLiveData}
                 expandedKey={expanded}
                 onToggle={(key) => setExpanded((prev) => (prev === key ? null : key))}
@@ -619,16 +685,18 @@ function StatusBadge({ status }: { status: PromptResponseResult["status"] }) {
 }
 
 // One question, shown once, with a compact platform row underneath for each
-// platform that answered it.
+// platform that answered it — each row holds 1 or `runsPerQuestion` repeats.
 function QuestionGroup({
   prompt,
-  rows,
+  platformGroups,
+  brand,
   useLiveData,
   expandedKey,
   onToggle,
 }: {
   prompt: string;
-  rows: PromptResponseResult[];
+  platformGroups: { platform: ResponsePlatform; repeats: PromptResponseResult[] }[];
+  brand: string;
   useLiveData: boolean;
   expandedKey: string | null;
   onToggle: (key: string) => void;
@@ -637,18 +705,18 @@ function QuestionGroup({
     <div className="border border-gray-100 rounded-lg p-3">
       <p className="text-xs font-medium text-gray-800 mb-1.5">{prompt}</p>
       <div>
-        {rows.map((r) => {
-          const key = `${r.platform}::${prompt}`;
-          return (
-            <PlatformRow
-              key={r.platform}
-              r={r}
-              useLiveData={useLiveData}
-              isOpen={expandedKey === key}
-              onToggle={() => onToggle(key)}
-            />
-          );
-        })}
+        {platformGroups.map((g) => (
+          <PlatformRepeatsRow
+            key={g.platform}
+            platform={g.platform}
+            repeats={g.repeats}
+            brand={brand}
+            useLiveData={useLiveData}
+            expandedKey={expandedKey}
+            rowKeyPrefix={prompt}
+            onToggle={onToggle}
+          />
+        ))}
       </div>
     </div>
   );
@@ -665,47 +733,122 @@ function metadataLine(r: PromptResponseResult, useLiveData: boolean): string {
   return parts.join(" · ");
 }
 
-function PlatformRow({
-  r,
+// One platform's answer(s) to one question. With one repeat, this is a
+// single compact row (brands mentioned leads, per the brief). With multiple
+// repeats, it leads with the observed mention rate for the focal brand
+// across those repeats, then lists each repeat individually underneath.
+function PlatformRepeatsRow({
+  platform,
+  repeats,
+  brand,
   useLiveData,
-  isOpen,
+  expandedKey,
+  rowKeyPrefix,
   onToggle,
 }: {
-  r: PromptResponseResult;
+  platform: ResponsePlatform;
+  repeats: PromptResponseResult[];
+  brand: string;
   useLiveData: boolean;
-  isOpen: boolean;
-  onToggle: () => void;
+  expandedKey: string | null;
+  rowKeyPrefix: string;
+  onToggle: (key: string) => void;
 }) {
-  const canExpand = r.status === "ok" && Boolean(r.responseText);
-  return (
-    <div className="py-2 border-b border-gray-50 last:border-0">
-      <div className="flex items-start justify-between gap-2 flex-wrap sm:flex-nowrap">
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <span className="text-xs font-medium text-gray-800 shrink-0">{PLATFORM_LABEL[r.platform]}</span>
-          <StatusBadge status={r.status} />
-          {r.status === "ok" && (
-            <span className="text-[11px] text-gray-600">
-              {r.mentionedBrands.length > 0 ? `Mentioned: ${r.mentionedBrands.join(", ")}` : "No tracked brand mentioned"}
-            </span>
+  if (repeats.length === 1) {
+    const r = repeats[0];
+    const key = `${rowKeyPrefix}::${platform}::0`;
+    const isOpen = expandedKey === key;
+    const canExpand = r.status === "ok" && Boolean(r.responseText);
+    return (
+      <div className="py-2 border-b border-gray-50 last:border-0">
+        <div className="flex items-start justify-between gap-2 flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <span className="text-xs font-medium text-gray-800 shrink-0">{PLATFORM_LABEL[platform]}</span>
+            <StatusBadge status={r.status} />
+            {r.status === "ok" && (
+              <span className="text-[11px] text-gray-600">
+                {r.mentionedBrands.length > 0 ? `Mentioned: ${r.mentionedBrands.join(", ")}` : "No tracked brand mentioned"}
+              </span>
+            )}
+            {r.status === "empty" && <span className="text-[11px] text-gray-400">No usable text returned</span>}
+            {r.status === "error" && <span className="text-[11px] text-red-500">{r.error}</span>}
+          </div>
+          {canExpand && (
+            <button onClick={() => onToggle(key)} className="text-[11px] text-indigo-600 hover:underline shrink-0">
+              {isOpen ? "Hide answer" : "View answer"}
+            </button>
           )}
-          {r.status === "empty" && <span className="text-[11px] text-gray-400">No usable text returned</span>}
-          {r.status === "error" && <span className="text-[11px] text-red-500">{r.error}</span>}
         </div>
-        {canExpand && (
-          <button onClick={onToggle} className="text-[11px] text-indigo-600 hover:underline shrink-0">
-            {isOpen ? "Hide answer" : "View answer"}
-          </button>
+        {isOpen && canExpand && (
+          <div className="mt-2 max-w-prose space-y-2">
+            <p className="text-[11px] text-gray-400">{metadataLine(r, useLiveData)}</p>
+            <div className="text-xs text-gray-700 bg-gray-50 border border-gray-100 rounded-md p-3">
+              <FormattedAnswer text={r.responseText!} />
+            </div>
+            <CitationsBlock r={r} useLiveData={useLiveData} />
+          </div>
         )}
       </div>
-      {isOpen && canExpand && (
-        <div className="mt-2 max-w-prose space-y-2">
-          <p className="text-[11px] text-gray-400">{metadataLine(r, useLiveData)}</p>
-          <div className="text-xs text-gray-700 bg-gray-50 border border-gray-100 rounded-md p-3">
-            <FormattedAnswer text={r.responseText!} />
-          </div>
-          <CitationsBlock r={r} useLiveData={useLiveData} />
-        </div>
-      )}
+    );
+  }
+
+  const analyzed = repeats.filter((r) => r.status === "ok");
+  const mentioning = analyzed.filter((r) => r.mentionedBrands.includes(brand));
+
+  return (
+    <div className="py-2 border-b border-gray-50 last:border-0">
+      <div className="flex items-center gap-2 flex-wrap mb-1">
+        <span className="text-xs font-medium text-gray-800">{PLATFORM_LABEL[platform]}</span>
+        {analyzed.length === 0 ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-200 text-amber-700 bg-amber-50 font-medium">
+            Unavailable
+          </span>
+        ) : (
+          <span className="text-[11px] text-gray-600">
+            Observed mention rate: {mentioning.length}/{analyzed.length} responses ·{" "}
+            {Math.round((mentioning.length / analyzed.length) * 100)}%
+          </span>
+        )}
+        {repeats.length !== analyzed.length && (
+          <span className="text-[11px] text-gray-400">({repeats.length} requested)</span>
+        )}
+      </div>
+      <div className="space-y-1">
+        {repeats.map((r) => {
+          const key = `${rowKeyPrefix}::${platform}::${r.repeatIndex}`;
+          const isOpen = expandedKey === key;
+          const canExpand = r.status === "ok" && Boolean(r.responseText);
+          return (
+            <div key={key}>
+              <div className="flex items-center gap-2 text-[11px] flex-wrap">
+                <span className="text-gray-400 w-10 shrink-0">Run {r.repeatIndex + 1}</span>
+                <StatusBadge status={r.status} />
+                {r.status === "ok" && (
+                  <span className="text-gray-600 truncate">
+                    {r.mentionedBrands.length > 0 ? `Mentioned: ${r.mentionedBrands.join(", ")}` : "No tracked brand mentioned"}
+                  </span>
+                )}
+                {r.status === "empty" && <span className="text-gray-400">No usable text</span>}
+                {r.status === "error" && <span className="text-red-500 truncate">{r.error}</span>}
+                {canExpand && (
+                  <button onClick={() => onToggle(key)} className="text-indigo-600 hover:underline ml-auto shrink-0">
+                    {isOpen ? "Hide" : "View"}
+                  </button>
+                )}
+              </div>
+              {isOpen && canExpand && (
+                <div className="mt-1 mb-2 ml-12 max-w-prose space-y-2">
+                  <p className="text-[11px] text-gray-400">{metadataLine(r, useLiveData)}</p>
+                  <div className="text-xs text-gray-700 bg-gray-50 border border-gray-100 rounded-md p-3">
+                    <FormattedAnswer text={r.responseText!} />
+                  </div>
+                  <CitationsBlock r={r} useLiveData={useLiveData} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -20,13 +20,16 @@ const ORGANIC_ROWS: MethodologyRow[] = [
   { metric: "Position (Top queries, live)", category: "API value", detail: "DataForSEO SERP API's rank_absolute for the organic result matching your domain." },
   { metric: "Position (Top queries, demo)", category: "Demo data", detail: "Static per-query demo value, shown until you fetch live rankings." },
   { metric: "Clicks / Impressions / CTR (per query & per page)", category: "Demo data", detail: "Sample clicks and impressions; CTR is calculated as clicks ÷ impressions (shown as \"—\" if impressions is 0). Traffic metrics use sample data to protect client confidentiality — this is not a live Search Console connection." },
+  { metric: "Compare periods (Impressions / Clicks / CTR, query & page examples)", category: "Demo data", detail: "Impressions and clicks for the selected date range are summed from the demo traffic trend; query/page-level examples are a seeded, labeled-demo estimate (no real per-day breakdown exists per query/page in this prototype). CTR is total clicks ÷ total impressions for the period; CTR change is shown in percentage points, not a relative percent." },
+  { metric: "Ranking history / trend", category: "Unavailable", detail: "Not tracked in this prototype — only the current live \"SERP position for this check\" is available. A ranking trend would need stored snapshots for the same keyword, market and device over time." },
 ];
 
 const PROMPT_ROWS: MethodologyRow[] = [
   { metric: "Answer text", category: "API value", detail: "The LLM's verbatim answer, returned as-is by DataForSEO's LLM Responses API for the selected model." },
   { metric: "Model used / web search used", category: "API value", detail: "Read back from each response — not assumed from the request." },
   { metric: "Citations", category: "API value", detail: "The response's annotations array (title + URL), when the model's web search returned any." },
-  { metric: "Prompt Mention Rate", category: "Dashboard calculation", detail: "Per platform: successfully analyzed responses that contain the brand/competitor name (case-insensitive, counted once per response) ÷ all successfully analyzed responses for that platform. A failed request is excluded from both sides, not counted as a non-mention." },
+  { metric: "Prompt Mention Rate / Observed mention rate", category: "Dashboard calculation", detail: "Successfully analyzed responses that contain the brand/competitor name (case-insensitive, counted once per response) ÷ all successfully analyzed responses for that scope. A failed request is excluded from both sides, not counted as a non-mention. With Runs per question set above 1, each repeat sends the identical question and settings again; the rate is observed across those repeats, not predicted from one answer." },
+  { metric: "Runs per question", category: "Dashboard calculation", detail: "1 or 5 repeats of the exact same question/settings per (platform, question) pair, to see answer-to-answer variance. 5 repeats is a small sample — useful for spotting variance, not a statistically robust estimate." },
   { metric: "Where competitors appeared", category: "Dashboard calculation", detail: "Filters to answers where a competitor name matched and the focal brand did not. Name matching only — not a judgment about whether the answer actually recommends anything." },
   { metric: "History / trend / Compare with previous run", category: "Dashboard calculation", detail: "Computed from your own saved runs, stored in this browser (localStorage), not a server database." },
 ];
@@ -37,6 +40,7 @@ const BENCHMARK_ROWS: MethodologyRow[] = [
   { metric: "Unavailable vs. zero", category: "Dashboard calculation", detail: "\"Unavailable\" = the provider returned no entry at all for that name, or the combined mentions across the whole brand set was zero (no usable denominator). A measured 0 means the name was checked, had a valid denominator, and simply had no mentions." },
   { metric: "Top citation domains returned for this benchmark", category: "API value", detail: "DataForSEO LLM Mentions API's sources_domain field, top 8 by mentions. Scope: the whole comparison set in one call (every brand and competitor you've entered, combined) — not specific to any single brand." },
   { metric: "Historical trend / Compare periods", category: "API value", detail: "DataForSEO LLM Mentions Historical API, monthly aggregates per brand name, starting 2025-08-01. Share of voice per month is still a dashboard calculation from those raw counts." },
+  { metric: "View example questions and answers", category: "API value", detail: "DataForSEO's Search Mentions API — individual question/answer/citation records, a different endpoint from the mentions counts above. Matches the benchmark's platform, market, language and brand set where that endpoint supports them; shows a clear empty state otherwise." },
 ];
 
 function MethodologyTable({ rows }: { rows: MethodologyRow[] }) {

@@ -492,3 +492,123 @@ paragraph/list formatting, both citation states) on desktop and mobile, and
 confirmed Organic Pulse's Demo data tags and confidentiality copy on both
 widths. Not tested in Safari this round (same unresolved screen-recording
 permission blocker as every prior round).
+
+## Follow-up round (2026-11-09c): runs per question, benchmark dataset explanations, organic period comparison
+
+Scope: a 3-part brief covering Prompt Monitoring (separating question count
+from repeat count), Brand Visibility Benchmark (explaining what the dataset
+represents + a new drill-down), and Organic Pulse (adding period comparison
+with demo data). Dashboard-only.
+
+**1. Prompt Monitoring — Runs per question** (`types.ts`, `dataforseo.ts`,
+`/api/geo/prompt-monitor/route.ts`, `PromptMonitorSection.tsx`,
+`PromptMonitorHistory.tsx`)
+- Added a `runsPerQuestion` control (1 or 5, default 1) separate from the
+  existing "up to 5 different questions" limit. A live run now sends
+  `questions × platforms × runsPerQuestion` identical requests (same
+  wording/settings each time) — `fetchPromptMonitoring()` loops repeats and
+  tags each result with a new `repeatIndex` field. Demo mode's
+  `buildSampleResults()` does the same, seeded by repeatIndex too, so repeats
+  of the same question genuinely vary in the demo (illustrating why repeats
+  are useful even without a live call).
+- Added the required "X questions × Y platforms × Z runs = N requests"
+  preview above the Run button, live-updated as any of the three change.
+- Rebuilt the per-(question, platform) row: with 1 repeat it's the same
+  compact "Mentioned: ..." row as before; with multiple repeats it leads
+  with **Observed mention rate** (e.g. "3/5 responses · 60%") for the focal
+  brand, shows the requested count separately when it differs from analyzed
+  (some repeats failed/empty), and lists each repeat ("Run 1", "Run 2", ...)
+  individually underneath with its own expandable answer.
+- Added "Rate is across the N selected questions and their usable answers"
+  under the headline strip when multiple questions are tested, and a "5
+  repeats is a small sample from this test" note next to the control.
+- **Data-model fix while here**: `runsPerQuestion` is now saved on every
+  `TestRun`/`SavedTest`. More importantly, fixed a real bug this surfaced in
+  `PromptMonitorHistory.tsx` — the 2-run comparison's `mentionedAt()` used
+  `.find()` to get ONE result per (platform, prompt) pair, which would have
+  silently collapsed a 5-repeat run down to just its first repeat once
+  repeats existed. Rewrote it to aggregate every analyzed repeat per pair
+  (`analyzedRepeatsFor`), so the comparison table now shows true aggregate
+  counts (e.g. `countA/totalA` vs `countB/totalB`, which can legitimately
+  have different denominators if the two runs used different repeat counts)
+  and a percentage-point delta. Added "repeat count" to the flagged
+  `settingsDiffs` list, and a "Matched sample: N analyzed answers in run A,
+  M in run B" line showing the real sample sizes behind the comparison.
+  Verified live via CDP: ran a 5-repeat test then a 1-repeat test on the same
+  question/platforms, compared them, and confirmed the diff note said
+  "repeat count" and the matched-sample line read "20 analyzed answers ...
+  4 analyzed answers" (5×4 vs 1×4, exactly as expected).
+- **Not verified**: a genuine partial-failure scenario (some repeats
+  erroring/empty while others succeed) within the new repeat-aware row UI.
+  The demo fixture only ever produces `status: "ok"`, and live calls aren't
+  possible (negative DataForSEO balance, as every round). The rendering
+  logic for `requested !== analyzed` was checked by reading the code, not by
+  triggering it — worth an explicit live test once the account is funded.
+
+**2. Brand Visibility Benchmark — dataset explanations + drill-down**
+(`BrandVisibilityBenchmark.tsx`, `dataforseo.ts`, new
+`/api/geo/benchmark-examples/route.ts`, `MetricsMethodology.tsx`)
+- Added the required explanation sentence plus a note that repeating a
+  lookup doesn't create new observations (it's a dataset snapshot, not a new
+  measurement), and a coverage block distinguishing ChatGPT (United States ·
+  English, DataForSEO-collected Q&A, explicitly not claimed representative)
+  from Google AI Overview (summaries captured from Google SERPs).
+- Renamed the "Share of voice" column to "Share of Voice (within selected
+  brands)".
+- **New: "View example questions and answers"** drill-down, built on
+  DataForSEO's **Search Mentions API** (`POST
+  /v3/ai_optimization/llm_mentions/search_mentions/live`) — a different
+  endpoint from `multi_target_metrics`. Looked up the exact schema via
+  DataForSEO's docs before building anything (target: up to 10
+  `{keyword}`/`{domain}` entities; platform `chat_gpt`/`google`/omitted;
+  same location_code/language_code pattern as the rest of this tab; response
+  items carry `question`, `answer`, and a `sources` array). ChatGPT is
+  constrained to US/English on this endpoint too, consistent with
+  `multi_target_metrics`. Added `fetchMentionExamples()` and the route; the
+  UI section loads on an explicit button click (not on `<details>` expand,
+  since a live fetch here is billed) and shows a clear "No example questions
+  and answers available for this selection" empty state when the API
+  returns zero items. Demo mode shows one clearly-labeled fixture instead of
+  calling the API. **Not verified against a real live response** — same
+  negative-balance constraint; the demo fixture path and the empty-state/
+  error-state paths were verified via CDP, the live success path was not.
+
+**3. Organic Pulse — period comparison** (`OrganicPulseTab.tsx`,
+`MetricsMethodology.tsx`)
+- Added a new "Compare periods" card with the same Date range · Compare with
+  (Off / Previous period / Custom range) · Apply pattern as Benchmark, using
+  day-level `<input type="date">` (not month selects — this data is daily,
+  and `type="date"` is the cross-browser-safe choice already established in
+  this project, unlike `type="month"` which Safari doesn't support).
+  "Previous period" is derived at render time from the Date range, never
+  stored, so it can't drift — verified live: a 14-day range produced the
+  correct immediately-preceding 14-day previous range.
+- KPI-level Impressions/Clicks are **real sums from the existing daily
+  `data.trend` array** over the selected date window (not fabricated) — CTR
+  is total clicks ÷ total impressions for the period, with the change shown
+  in percentage points (e.g. "+0.7pp"), not a relative percent, per the
+  brief. Query-level and page-level example comparisons are necessarily
+  synthetic (this mock dataset has no real per-day breakdown per query/page,
+  only the site-wide trend does) — each row's period value is a seeded,
+  deterministic scale of its known total by the selected range's share of
+  the full mock date range, clearly tagged "Demo data" throughout and
+  described as "example comparison," never presented as real per-day data.
+- Added a length-mismatch warning for Custom range periods of different
+  durations (same pattern as Benchmark's), verified live by setting a 14-day
+  range against a 70-day compare range.
+- Added a "Ranking history / trend" row to the methodology table, marked
+  Unavailable: this prototype doesn't store ranking snapshots over time, so
+  per the brief's conditional instruction, no illustrative/demo ranking
+  trend was built — only the existing single-point-in-time "SERP position
+  for this check" live check exists.
+
+**Verification**: `npx tsc --noEmit`, `npx eslint src --max-warnings=9999`,
+`npm run build` all clean (new `/api/geo/benchmark-examples` route listed).
+CDP at 1280px and 390px covered: the 1-run and 5-run request flows and their
+distinct row rendering, the Observed mention rate math, the History
+comparison's repeat-count flag and asymmetric matched-sample sizes, the
+Benchmark explanation/coverage copy and the examples drill-down (demo
+fixture path), and the Organic Pulse period comparison including the
+length-mismatch note and percentage-point CTR delta. Not tested in Safari
+this round (same unresolved screen-recording permission blocker as every
+prior round).

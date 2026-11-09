@@ -13,7 +13,7 @@ import {
 import KpiCard from "@/components/ui/KpiCard";
 import DataSourceBadge from "@/components/ui/DataSourceBadge";
 import MetricsMethodology from "@/components/ui/MetricsMethodology";
-import type { OrganicPulseData } from "@/lib/types";
+import type { OrganicPulseData, TrendPoint } from "@/lib/types";
 
 function pct(v: number) {
   return `${(v * 100).toFixed(1)}%`;
@@ -33,6 +33,103 @@ function DemoDataTag() {
       Demo data
     </span>
   );
+}
+
+// Same deterministic-hash pattern used elsewhere in this app for demo data —
+// reproducible across renders, not random.
+function hashSeed(input: string): number {
+  let h = 0;
+  for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) >>> 0;
+  return h;
+}
+function addDays(date: string, delta: number): string {
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+function daysBetween(from: string, to: string): number {
+  return Math.round((new Date(to + "T00:00:00Z").getTime() - new Date(from + "T00:00:00Z").getTime()) / 86400000) + 1;
+}
+// The immediately preceding, non-overlapping range of the same length.
+function previousDateRange(from: string, to: string): { from: string; to: string } {
+  const len = daysBetween(from, to);
+  const newTo = addDays(from, -1);
+  const newFrom = addDays(newTo, -(len - 1));
+  return { from: newFrom, to: newTo };
+}
+function sumRange(trend: TrendPoint[], from: string, to: string) {
+  let clicks = 0;
+  let impressions = 0;
+  for (const p of trend) {
+    if (p.date >= from && p.date <= to) {
+      clicks += p.clicks;
+      impressions += p.impressions;
+    }
+  }
+  return { clicks, impressions };
+}
+
+interface PeriodRow {
+  label: string;
+  clicks: number;
+  impressions: number;
+}
+interface PeriodSummary {
+  from: string;
+  to: string;
+  clicks: number;
+  impressions: number;
+  queries: PeriodRow[];
+  pages: PeriodRow[];
+}
+
+// Query/page-level clicks & impressions have no real per-day breakdown in
+// this demo dataset (only the site-wide trend does), so a period's per-query/
+// page values are a seeded, labeled-as-demo scale of each row's known total
+// by the selected range's share of the full mock date range — honest about
+// being synthetic, not a claim of real daily granularity.
+function scaleForPeriod(base: number, seedKey: string, periodDays: number, totalDays: number): number {
+  const seed = hashSeed(seedKey);
+  const variance = 0.85 + (seed % 30) / 100; // 0.85-1.14
+  return Math.max(0, Math.round(base * (periodDays / totalDays) * variance));
+}
+
+function buildPeriodSummary(data: OrganicPulseData, from: string, to: string): PeriodSummary {
+  const { clicks, impressions } = sumRange(data.trend, from, to);
+  const trendStart = data.trend[0]?.date ?? from;
+  const trendEnd = data.trend[data.trend.length - 1]?.date ?? to;
+  const totalDays = Math.max(1, daysBetween(trendStart, trendEnd));
+  const periodDays = daysBetween(from, to);
+  return {
+    from,
+    to,
+    clicks,
+    impressions,
+    queries: data.topQueries.map((q) => ({
+      label: q.query,
+      clicks: scaleForPeriod(q.clicks, `${q.query}|${from}|${to}`, periodDays, totalDays),
+      impressions: scaleForPeriod(q.impressions, `${q.query}|imp|${from}|${to}`, periodDays, totalDays),
+    })),
+    pages: data.topPages.map((p) => ({
+      label: p.url,
+      clicks: scaleForPeriod(p.clicks, `${p.url}|${from}|${to}`, periodDays, totalDays),
+      impressions: scaleForPeriod(p.impressions, `${p.url}|imp|${from}|${to}`, periodDays, totalDays),
+    })),
+  };
+}
+
+function formatDateShort(d: string) {
+  return new Date(d + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+function pctChange(a: number, b: number): string {
+  if (a === 0) return b === 0 ? "0%" : "n/a";
+  const d = ((b - a) / a) * 100;
+  return `${d > 0 ? "+" : ""}${d.toFixed(1)}%`;
+}
+function ctrPpChange(aClicks: number, aImpr: number, bClicks: number, bImpr: number): string {
+  if (aImpr === 0 || bImpr === 0) return "—";
+  const d = (bClicks / bImpr - aClicks / aImpr) * 100;
+  return `${d > 0 ? "+" : ""}${d.toFixed(1)}pp`;
 }
 
 export default function OrganicPulseTab({
@@ -59,6 +156,54 @@ export default function OrganicPulseTab({
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+
+  // Period comparison — entirely demo data (client-side, synchronous; no
+  // network call). Defaults to the last 14 days of the trend, matching the
+  // KPI cards' own "vs prior period" window above.
+  const trendMin = data.trend[0]?.date ?? "";
+  const trendMax = data.trend[data.trend.length - 1]?.date ?? "";
+  const defaultPeriodFrom = trendMax ? addDays(trendMax, -13) : trendMin;
+  const [periodFrom, setPeriodFrom] = useState(defaultPeriodFrom < trendMin ? trendMin : defaultPeriodFrom);
+  const [periodTo, setPeriodTo] = useState(trendMax);
+  const [periodCompareMode, setPeriodCompareMode] = useState<"off" | "previous" | "custom">("off");
+  const defaultPrevious = trendMax ? previousDateRange(defaultPeriodFrom, trendMax) : { from: trendMin, to: trendMin };
+  const [customPeriodFrom, setCustomPeriodFrom] = useState(defaultPrevious.from < trendMin ? trendMin : defaultPrevious.from);
+  const [customPeriodTo, setCustomPeriodTo] = useState(defaultPrevious.to);
+  const [periodResult, setPeriodResult] = useState<{ a: PeriodSummary; b: PeriodSummary | null } | null>(null);
+
+  function handlePeriodFromChange(v: string) {
+    setPeriodFrom(v);
+    if (v > periodTo) setPeriodTo(v);
+  }
+  function handlePeriodToChange(v: string) {
+    setPeriodTo(v);
+    if (v < periodFrom) setPeriodFrom(v);
+  }
+  function handleCustomFromChange(v: string) {
+    setCustomPeriodFrom(v);
+    if (v > customPeriodTo) setCustomPeriodTo(v);
+  }
+  function handleCustomToChange(v: string) {
+    setCustomPeriodTo(v);
+    if (v < customPeriodFrom) setCustomPeriodFrom(v);
+  }
+
+  const activePeriodCompareRange =
+    periodCompareMode === "previous" ? previousDateRange(periodFrom, periodTo) : { from: customPeriodFrom, to: customPeriodTo };
+
+  function applyPeriodCompare() {
+    const a = buildPeriodSummary(data, periodFrom, periodTo);
+    if (periodCompareMode === "off") {
+      setPeriodResult({ a, b: null });
+      return;
+    }
+    const range = periodCompareMode === "previous" ? previousDateRange(periodFrom, periodTo) : { from: customPeriodFrom, to: customPeriodTo };
+    const b = buildPeriodSummary(data, range.from, range.to);
+    setPeriodResult({ a, b });
+  }
+
+  const periodLenA = daysBetween(periodFrom, periodTo);
+  const periodLenB = daysBetween(activePeriodCompareRange.from, activePeriodCompareRange.to);
 
   async function fetchLivePositions() {
     const myRequestId = ++requestIdRef.current;
@@ -162,6 +307,231 @@ export default function OrganicPulseTab({
             </LineChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Compare periods</h3>
+          <p className="text-[11px] text-gray-500 mt-1">Traffic metrics use sample data to protect client confidentiality.</p>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex items-end gap-2">
+            <div>
+              <label className="text-[11px] text-gray-600 block mb-1">From</label>
+              <input
+                type="date"
+                min={trendMin}
+                max={periodTo}
+                value={periodFrom}
+                onChange={(e) => handlePeriodFromChange(e.target.value)}
+                className="text-gray-900 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] text-gray-600 block mb-1">To</label>
+              <input
+                type="date"
+                min={periodFrom}
+                max={trendMax}
+                value={periodTo}
+                onChange={(e) => handlePeriodToChange(e.target.value)}
+                className="text-gray-900 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] text-gray-600 block mb-1">Compare with</label>
+            <select
+              value={periodCompareMode}
+              onChange={(e) => setPeriodCompareMode(e.target.value as "off" | "previous" | "custom")}
+              className="text-gray-900 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="off">Off</option>
+              <option value="previous">Previous period</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </div>
+          {periodCompareMode === "custom" && (
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="text-[11px] text-gray-600 block mb-1">Compare from</label>
+                <input
+                  type="date"
+                  min={trendMin}
+                  max={customPeriodTo}
+                  value={customPeriodFrom}
+                  onChange={(e) => handleCustomFromChange(e.target.value)}
+                  className="text-gray-900 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-gray-600 block mb-1">Compare to</label>
+                <input
+                  type="date"
+                  min={customPeriodFrom}
+                  max={trendMax}
+                  value={customPeriodTo}
+                  onChange={(e) => handleCustomToChange(e.target.value)}
+                  className="text-gray-900 text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+            </div>
+          )}
+          <button
+            onClick={applyPeriodCompare}
+            className="text-xs px-4 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition"
+          >
+            Apply
+          </button>
+        </div>
+        {periodCompareMode === "custom" && periodLenA !== periodLenB && (
+          <p className="text-[11px] text-amber-600">
+            Date range covers {periodLenA} day{periodLenA === 1 ? "" : "s"}; the compare range covers {periodLenB} day
+            {periodLenB === 1 ? "" : "s"} — raw totals cover different durations, so compare rates, not totals.
+          </p>
+        )}
+
+        {periodResult && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="border border-gray-100 rounded-md p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Impressions</span>
+                  <DemoDataTag />
+                </div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-lg font-semibold text-gray-900">{periodResult.a.impressions.toLocaleString("en-US")}</span>
+                  {periodResult.b && (
+                    <>
+                      <span className="text-xs text-gray-400">→</span>
+                      <span className="text-sm text-gray-700">{periodResult.b.impressions.toLocaleString("en-US")}</span>
+                      <span
+                        className={`text-xs font-medium ${periodResult.b.impressions >= periodResult.a.impressions ? "text-emerald-600" : "text-red-500"}`}
+                      >
+                        {pctChange(periodResult.a.impressions, periodResult.b.impressions)}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="border border-gray-100 rounded-md p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Clicks</span>
+                  <DemoDataTag />
+                </div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-lg font-semibold text-gray-900">{periodResult.a.clicks.toLocaleString("en-US")}</span>
+                  {periodResult.b && (
+                    <>
+                      <span className="text-xs text-gray-400">→</span>
+                      <span className="text-sm text-gray-700">{periodResult.b.clicks.toLocaleString("en-US")}</span>
+                      <span
+                        className={`text-xs font-medium ${periodResult.b.clicks >= periodResult.a.clicks ? "text-emerald-600" : "text-red-500"}`}
+                      >
+                        {pctChange(periodResult.a.clicks, periodResult.b.clicks)}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="border border-gray-100 rounded-md p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">CTR (total clicks ÷ total impressions)</span>
+                  <DemoDataTag />
+                </div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-lg font-semibold text-gray-900">{ctrDisplay(periodResult.a.clicks, periodResult.a.impressions)}</span>
+                  {periodResult.b && (
+                    <>
+                      <span className="text-xs text-gray-400">→</span>
+                      <span className="text-sm text-gray-700">{ctrDisplay(periodResult.b.clicks, periodResult.b.impressions)}</span>
+                      <span className="text-xs font-medium text-gray-600">
+                        {ctrPpChange(periodResult.a.clicks, periodResult.a.impressions, periodResult.b.clicks, periodResult.b.impressions)}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-500">
+              {formatDateShort(periodResult.a.from)}–{formatDateShort(periodResult.a.to)}
+              {periodResult.b && <> vs. {formatDateShort(periodResult.b.from)}–{formatDateShort(periodResult.b.to)}</>}
+            </p>
+
+            <div className="overflow-x-auto">
+              <h4 className="text-xs font-semibold text-gray-700 mb-2">Top queries — example comparison<DemoDataTag /></h4>
+              <table className="w-full text-xs min-w-[480px] [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
+                <thead>
+                  <tr className="text-left text-gray-400 border-b border-gray-100">
+                    <th className="py-1.5 font-medium">Query</th>
+                    <th className="py-1.5 font-medium text-right">Clicks</th>
+                    <th className="py-1.5 font-medium text-right">Impressions</th>
+                    <th className="py-1.5 font-medium text-right">CTR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {periodResult.a.queries.map((qa, i) => {
+                    const qb = periodResult.b?.queries[i];
+                    return (
+                      <tr key={qa.label} className="border-b border-gray-50 last:border-0">
+                        <td className="py-1.5 text-gray-700">{qa.label}</td>
+                        <td className="py-1.5 text-right text-gray-600">
+                          {qa.clicks.toLocaleString("en-US")}
+                          {qb && <span className="text-gray-400"> → {qb.clicks.toLocaleString("en-US")}</span>}
+                        </td>
+                        <td className="py-1.5 text-right text-gray-600">
+                          {qa.impressions.toLocaleString("en-US")}
+                          {qb && <span className="text-gray-400"> → {qb.impressions.toLocaleString("en-US")}</span>}
+                        </td>
+                        <td className="py-1.5 text-right text-gray-600">
+                          {ctrDisplay(qa.clicks, qa.impressions)}
+                          {qb && <span className="text-gray-400"> → {ctrDisplay(qb.clicks, qb.impressions)}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="overflow-x-auto">
+              <h4 className="text-xs font-semibold text-gray-700 mb-2">Top pages — example comparison<DemoDataTag /></h4>
+              <table className="w-full text-xs min-w-[420px] [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
+                <thead>
+                  <tr className="text-left text-gray-400 border-b border-gray-100">
+                    <th className="py-1.5 font-medium">Page</th>
+                    <th className="py-1.5 font-medium text-right">Clicks</th>
+                    <th className="py-1.5 font-medium text-right">Impressions</th>
+                    <th className="py-1.5 font-medium text-right">CTR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {periodResult.a.pages.map((pa, i) => {
+                    const pb = periodResult.b?.pages[i];
+                    return (
+                      <tr key={pa.label} className="border-b border-gray-50 last:border-0">
+                        <td className="py-1.5 text-gray-800 font-mono">{pa.label}</td>
+                        <td className="py-1.5 text-right text-gray-600">
+                          {pa.clicks.toLocaleString("en-US")}
+                          {pb && <span className="text-gray-400"> → {pb.clicks.toLocaleString("en-US")}</span>}
+                        </td>
+                        <td className="py-1.5 text-right text-gray-600">
+                          {pa.impressions.toLocaleString("en-US")}
+                          {pb && <span className="text-gray-400"> → {pb.impressions.toLocaleString("en-US")}</span>}
+                        </td>
+                        <td className="py-1.5 text-right text-gray-600">
+                          {ctrDisplay(pa.clicks, pa.impressions)}
+                          {pb && <span className="text-gray-400"> → {ctrDisplay(pb.clicks, pb.impressions)}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 overflow-x-auto">

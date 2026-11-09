@@ -4,7 +4,7 @@
 // Endpoint paths must NOT have a trailing slash — DataForSEO returns a bare
 // 40400 "Not Found" (no task created) if you add one.
 
-import type { Citation, PromptResponseResult, ResponsePlatform } from "./types";
+import type { Citation, MentionExample, PromptResponseResult, ResponsePlatform } from "./types";
 
 const BASE_URL = "https://api.dataforseo.com";
 
@@ -195,6 +195,61 @@ export async function fetchAiVisibility(
   return { byTarget, citations };
 }
 
+// "View example questions and answers" drill-down — DataForSEO's Search
+// Mentions API (distinct endpoint from multi_target_metrics above). Schema
+// confirmed against DataForSEO's docs on 2026-11-09: POST
+// /v3/ai_optimization/llm_mentions/search_mentions/live, target is up to 10
+// {keyword|domain} entities, platform is "chat_gpt" | "google" | omitted
+// (both), location_code/language_code same as the benchmark's. ChatGPT is
+// constrained to United States + English on this endpoint too, same as
+// multi_target_metrics — consistent with the UI already only ever offering
+// chat_gpt when that market/language pair is selected.
+interface SearchMentionSourceRaw {
+  title?: string;
+  url?: string;
+  domain?: string;
+}
+interface SearchMentionItemRaw {
+  platform?: string;
+  question?: string;
+  answer?: string;
+  sources?: SearchMentionSourceRaw[] | null;
+}
+
+export async function fetchMentionExamples(
+  brand: string,
+  competitors: string[],
+  platform?: AiVisibilityPlatformFilter,
+  locationCode = 2840,
+  languageCode = "en",
+  limit = 5,
+): Promise<MentionExample[]> {
+  const target = [brand, ...competitors].filter(Boolean).slice(0, 10).map((name) => ({ keyword: name }));
+
+  const json = await postLive<{
+    tasks?: { result?: { items?: SearchMentionItemRaw[] }[] }[];
+  }>("/v3/ai_optimization/llm_mentions/search_mentions/live", [
+    {
+      target,
+      location_code: locationCode,
+      language_code: languageCode,
+      limit,
+      ...(platform ? { platform } : {}),
+    },
+  ]);
+
+  const items = json.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items.map((it) => ({
+    platform: displayPlatformName(it.platform ?? ""),
+    question: it.question ?? "",
+    answer: it.answer ?? "",
+    sources: (it.sources ?? [])
+      .slice(0, 5)
+      .map((s) => ({ title: s.title || s.domain || s.url || "source", url: s.url ?? "" }))
+      .filter((s) => s.url),
+  }));
+}
+
 export interface KeywordVolumeResult {
   keyword: string;
   aiSearchVolume: number | null;
@@ -379,70 +434,77 @@ export interface PromptMonitorRequest {
   platforms: ResponsePlatform[];
   webSearch: boolean;
   webSearchCountryIsoCode?: string;
+  runsPerQuestion: number; // repeats per (platform, prompt) pair — reuses the same wording/settings each time
 }
 
 export async function fetchPromptMonitoring(req: PromptMonitorRequest): Promise<PromptResponseResult[]> {
   const names = [req.brand, ...req.competitors].filter(Boolean);
   const calls: Promise<PromptResponseResult>[] = [];
+  const repeats = Math.max(1, req.runsPerQuestion);
 
   for (const platform of req.platforms) {
     for (const prompt of req.prompts) {
-      calls.push(
-        (async (): Promise<PromptResponseResult> => {
-          try {
-            const body: Record<string, unknown> = {
-              user_prompt: prompt,
-              model_name: RESPONSE_PLATFORM_DEFAULT_MODEL[platform],
-            };
-            if (req.webSearch) {
-              body.web_search = true;
-              if (req.webSearchCountryIsoCode && RESPONSE_PLATFORM_SUPPORTS_GEO_PARAM[platform]) {
-                body.web_search_country_iso_code = req.webSearchCountryIsoCode;
+      for (let repeatIndex = 0; repeatIndex < repeats; repeatIndex++) {
+        calls.push(
+          (async (): Promise<PromptResponseResult> => {
+            try {
+              const body: Record<string, unknown> = {
+                user_prompt: prompt,
+                model_name: RESPONSE_PLATFORM_DEFAULT_MODEL[platform],
+              };
+              if (req.webSearch) {
+                body.web_search = true;
+                if (req.webSearchCountryIsoCode && RESPONSE_PLATFORM_SUPPORTS_GEO_PARAM[platform]) {
+                  body.web_search_country_iso_code = req.webSearchCountryIsoCode;
+                }
               }
-            }
-            const json = await postLive<{ tasks?: { result?: LlmResponseResult[] }[] }>(
-              RESPONSE_PLATFORM_PATH[platform],
-              [body],
-            );
-            const result = json.tasks?.[0]?.result?.[0];
-            const { text, citations } = extractResponseTextAndCitations(result);
-            if (!text) {
+              const json = await postLive<{ tasks?: { result?: LlmResponseResult[] }[] }>(
+                RESPONSE_PLATFORM_PATH[platform],
+                [body],
+              );
+              const result = json.tasks?.[0]?.result?.[0];
+              const { text, citations } = extractResponseTextAndCitations(result);
+              if (!text) {
+                return {
+                  platform,
+                  prompt,
+                  repeatIndex,
+                  status: "empty",
+                  modelName: result?.model_name ?? RESPONSE_PLATFORM_DEFAULT_MODEL[platform],
+                  webSearchUsed: result?.web_search ?? null,
+                  responseText: null,
+                  mentionedBrands: [],
+                  citations: [],
+                };
+              }
               return {
                 platform,
                 prompt,
-                status: "empty",
+                repeatIndex,
+                status: "ok",
                 modelName: result?.model_name ?? RESPONSE_PLATFORM_DEFAULT_MODEL[platform],
                 webSearchUsed: result?.web_search ?? null,
+                responseText: text,
+                mentionedBrands: detectBrandMentions(text, names),
+                citations,
+              };
+            } catch (err) {
+              return {
+                platform,
+                prompt,
+                repeatIndex,
+                status: "error",
+                error: err instanceof Error ? err.message : "DataForSEO request failed",
+                modelName: null,
+                webSearchUsed: null,
                 responseText: null,
                 mentionedBrands: [],
                 citations: [],
               };
             }
-            return {
-              platform,
-              prompt,
-              status: "ok",
-              modelName: result?.model_name ?? RESPONSE_PLATFORM_DEFAULT_MODEL[platform],
-              webSearchUsed: result?.web_search ?? null,
-              responseText: text,
-              mentionedBrands: detectBrandMentions(text, names),
-              citations,
-            };
-          } catch (err) {
-            return {
-              platform,
-              prompt,
-              status: "error",
-              error: err instanceof Error ? err.message : "DataForSEO request failed",
-              modelName: null,
-              webSearchUsed: null,
-              responseText: null,
-              mentionedBrands: [],
-              citations: [],
-            };
-          }
-        })(),
-      );
+          })(),
+        );
+      }
     }
   }
 

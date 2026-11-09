@@ -67,6 +67,7 @@ export interface Citation {
 export interface PromptResponseResult {
   platform: ResponsePlatform;
   prompt: string;
+  repeatIndex: number; // 0-based — which repeat of this (platform, prompt) pair this is, within one run
   status: "ok" | "empty" | "error";
   error?: string;
   modelName: string | null;
@@ -90,6 +91,7 @@ export interface SavedTest {
   language: string; // free-text label, e.g. "Traditional Chinese"
   webSearch: boolean;
   webSearchCountryIsoCode?: string;
+  runsPerQuestion: number; // repeats sent per (platform, question) pair — 1 or 5
   createdAt: string; // ISO timestamp
 }
 
@@ -133,4 +135,14 @@ export interface BenchmarkMonthPoint {
   year: number;
   month: number;
   brands: { brand: string; mentions: number | null }[];
+}
+
+// "View example questions and answers" drill-down (DataForSEO Search
+// Mentions API) — individual question/answer records from the dataset,
+// distinct from the aggregate counts above.
+export interface MentionExample {
+  platform: string; // display name, e.g. "ChatGPT" / "Google AI Overview"
+  question: string;
+  answer: string;
+  sources: Citation[];
 }

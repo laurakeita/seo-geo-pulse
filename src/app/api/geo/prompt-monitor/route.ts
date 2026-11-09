@@ -19,6 +19,9 @@ export async function POST(req: Request) {
     typeof body.webSearchCountryIsoCode === "string" && body.webSearchCountryIsoCode.trim()
       ? body.webSearchCountryIsoCode.trim()
       : undefined;
+  // Only 1 or 5 are offered in the UI; anything else falls back to 1 rather
+  // than silently clamping to an unrequested number of billed calls.
+  const runsPerQuestion: number = body.runsPerQuestion === 5 ? 5 : 1;
 
   if (!brand) {
     return Response.json({ error: "brand is required" }, { status: 400 });
@@ -38,6 +41,7 @@ export async function POST(req: Request) {
       platforms,
       webSearch,
       webSearchCountryIsoCode,
+      runsPerQuestion,
     });
     return Response.json({ results });
   } catch (err) {

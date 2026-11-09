@@ -70,6 +70,12 @@ export default function PromptMonitorHistory({
   const runA = history.find((r) => r.id === runAId) ?? null;
   const runB = history.find((r) => r.id === runBId) ?? null;
 
+  // All "ok" repeats for one (platform, prompt) pair within one run — a run
+  // can hold several (1 or `runsPerQuestion`), not just one.
+  function analyzedRepeatsFor(run: TestRun, platform: string, prompt: string) {
+    return run.results.filter((r) => r.platform === platform && r.prompt === prompt && r.status === "ok");
+  }
+
   const matchedPairs = useMemo(() => {
     if (!runA || !runB) return [];
     const aOk = new Set(runA.results.filter((r) => r.status === "ok").map((r) => okKey(r.platform, r.prompt)));
@@ -86,6 +92,20 @@ export default function PromptMonitorHistory({
     return pairs;
   }, [runA, runB]);
 
+  // Total analyzed repeats across every matched pair, per run — the sample
+  // size the comparison below is actually built on. Differs between A and B
+  // when the repeat count or pass rate differed.
+  const matchedSampleSizes = useMemo(() => {
+    if (!runA || !runB) return { a: 0, b: 0 };
+    let a = 0;
+    let b = 0;
+    for (const pair of matchedPairs) {
+      a += analyzedRepeatsFor(runA, pair.platform, pair.prompt).length;
+      b += analyzedRepeatsFor(runB, pair.platform, pair.prompt).length;
+    }
+    return { a, b };
+  }, [runA, runB, matchedPairs]);
+
   const settingsDiffs = useMemo(() => {
     if (!runA || !runB) return [];
     const diffs: string[] = [];
@@ -98,35 +118,40 @@ export default function PromptMonitorHistory({
     if (a.market !== b.market) diffs.push("market");
     if (a.language !== b.language) diffs.push("language");
     if (a.webSearch !== b.webSearch || a.webSearchCountryIsoCode !== b.webSearchCountryIsoCode) diffs.push("search settings");
+    if ((a.runsPerQuestion ?? 1) !== (b.runsPerQuestion ?? 1)) diffs.push("repeat count");
     const modelsA = new Set(runA.results.map((r) => r.modelName).filter(Boolean));
     const modelsB = new Set(runB.results.map((r) => r.modelName).filter(Boolean));
     if (JSON.stringify([...modelsA].sort()) !== JSON.stringify([...modelsB].sort())) diffs.push("model used");
     return diffs;
   }, [runA, runB]);
 
+  // Per brand, aggregated across every matched pair's analyzed repeats —
+  // not just the first repeat of each pair, so this stays correct when a
+  // run used more than 1 run per question.
   const brandComparison = useMemo(() => {
     if (!runA || !runB) return null;
     const names = [...new Set([runA.settings.brand, ...runA.settings.competitors, runB.settings.brand, ...runB.settings.competitors])];
-    const mentionedAt = (run: TestRun, platform: string, prompt: string, name: string) => {
-      const r = run.results.find((x) => x.platform === platform && x.prompt === prompt && x.status === "ok");
-      return r ? r.mentionedBrands.includes(name) : false;
-    };
     return names.map((name) => {
       let countA = 0;
+      let totalA = 0;
       let countB = 0;
+      let totalB = 0;
       for (const pair of matchedPairs) {
-        if (mentionedAt(runA, pair.platform, pair.prompt, name)) countA++;
-        if (mentionedAt(runB, pair.platform, pair.prompt, name)) countB++;
+        const repsA = analyzedRepeatsFor(runA, pair.platform, pair.prompt);
+        const repsB = analyzedRepeatsFor(runB, pair.platform, pair.prompt);
+        countA += repsA.filter((r) => r.mentionedBrands.includes(name)).length;
+        totalA += repsA.length;
+        countB += repsB.filter((r) => r.mentionedBrands.includes(name)).length;
+        totalB += repsB.length;
       }
-      const total = matchedPairs.length;
       let change: "appeared" | "disappeared" | "stayed present" | "stayed absent" | null = null;
-      if (total === 1) {
+      if (totalA === 1 && totalB === 1) {
         if (countA === 0 && countB === 1) change = "appeared";
         else if (countA === 1 && countB === 0) change = "disappeared";
         else if (countA === 1 && countB === 1) change = "stayed present";
         else change = "stayed absent";
       }
-      return { name, countA, countB, total, change };
+      return { name, countA, totalA, countB, totalB, change };
     });
   }, [runA, runB, matchedPairs]);
 
@@ -302,32 +327,41 @@ export default function PromptMonitorHistory({
                         </tr>
                       </thead>
                       <tbody>
-                        {brandComparison?.map((row) => (
-                          <tr key={row.name} className="border-b border-gray-50 last:border-0">
-                            <td className="py-1.5 text-gray-700">{row.name}</td>
-                            <td className="py-1.5 text-right text-gray-600">
-                              {row.countA}/{row.total}
-                            </td>
-                            <td className="py-1.5 text-right text-gray-600">
-                              {row.countB}/{row.total}
-                            </td>
-                            <td
-                              className={`py-1.5 text-right font-medium ${
-                                row.countB > row.countA ? "text-emerald-600" : row.countB < row.countA ? "text-red-500" : "text-gray-400"
-                              }`}
-                            >
-                              {row.change
-                                ? row.change
-                                : `${row.countB > row.countA ? "▲" : row.countB < row.countA ? "▼" : "—"} ${Math.abs(row.countB - row.countA)}`}
-                            </td>
-                          </tr>
-                        ))}
+                        {brandComparison?.map((row) => {
+                          const rateA = row.totalA > 0 ? row.countA / row.totalA : null;
+                          const rateB = row.totalB > 0 ? row.countB / row.totalB : null;
+                          const deltaPp = rateA !== null && rateB !== null ? Math.round((rateB - rateA) * 100) : null;
+                          return (
+                            <tr key={row.name} className="border-b border-gray-50 last:border-0">
+                              <td className="py-1.5 text-gray-700">{row.name}</td>
+                              <td className="py-1.5 text-right text-gray-600">
+                                {row.countA}/{row.totalA}
+                              </td>
+                              <td className="py-1.5 text-right text-gray-600">
+                                {row.countB}/{row.totalB}
+                              </td>
+                              <td
+                                className={`py-1.5 text-right font-medium ${
+                                  deltaPp === null || deltaPp === 0
+                                    ? "text-gray-400"
+                                    : deltaPp > 0
+                                      ? "text-emerald-600"
+                                      : "text-red-500"
+                                }`}
+                              >
+                                {row.change ? row.change : deltaPp === null ? "—" : `${deltaPp > 0 ? "+" : ""}${deltaPp}pp`}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                     <p className="text-[11px] text-gray-400">
                       Matched sample: {matchedPairs.length} prompt/platform pair{matchedPairs.length === 1 ? "" : "s"} that
-                      succeeded in both runs. Original per-run counts can differ from this if other pairs failed in
-                      only one of the two runs.
+                      succeeded in both runs — {matchedSampleSizes.a} analyzed answer{matchedSampleSizes.a === 1 ? "" : "s"} in{" "}
+                      {formatDate(runA.timestamp).split(",")[0]}, {matchedSampleSizes.b} in{" "}
+                      {formatDate(runB.timestamp).split(",")[0]}. Counts above differ from each run&apos;s own total if other
+                      pairs failed in only one of the two runs, or the two runs used a different repeat count.
                     </p>
                   </>
                 )}
